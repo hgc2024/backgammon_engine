@@ -8,6 +8,8 @@ from stable_baselines3.common.vec_env import SubprocVecEnv, DummyVecEnv
 from stable_baselines3.common.callbacks import CheckpointCallback
 from src.env import BackgammonEnv, create_env
 
+from src.features import BackgammonResNet
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_cpu", type=int, default=20, help="Number of CPUs to use")
@@ -24,11 +26,12 @@ def main():
         env = DummyVecEnv([create_env])
     
     # Neural Network Architecture
-    # Policy: MLP
-    # RTX 4050 can handle large networks.
-    # Input 198 -> [512, 512] -> Actions
+    # Policy: MlpPolicy (but with custom feature extractor)
+    # The MlpPolicy will put a head on top of our features_dim output.
     policy_kwargs = dict(
-        net_arch=[512, 512, 256] # Deep network
+        features_extractor_class=BackgammonResNet,
+        features_extractor_kwargs=dict(features_dim=512),
+        net_arch=[dict(pi=[256, 128], vf=[256, 128])] # Heads
     )
     
     # PPO Hyperparameters
@@ -38,19 +41,22 @@ def main():
     # Maybe lower n_steps if we want more frequent updates?
     # But PPO likes large batches.
     
+    # PPO Hyperparameters
     model = MaskablePPO(
         "MlpPolicy",
         env,
         policy_kwargs=policy_kwargs,
         verbose=1,
-        n_steps=1024, # 1024 * 20 = 20480 buffer
+        n_steps=1024,
         batch_size=2048,
-        gamma=0.99, # Discount factor
-        ent_coef=0.01, # Exploration
+        gamma=0.99,
+        ent_coef=0.01,
         learning_rate=3e-4,
-        tensorboard_log="./backgammon_tensorboard/"
+        tensorboard_log="./backgammon_tensorboard/",
+        device="cuda" # Explicitly use GPU
     )
     
+    print(f"Training on device: {model.device}")
     print("Starting training...")
     
     checkpoint_callback = CheckpointCallback(
