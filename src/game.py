@@ -149,6 +149,9 @@ class BackgammonGame:
             else:
                 move_seq = self.legal_moves[action_idx]
                 for move in move_seq:
+                    start, end = move
+                    if end == 'off':
+                        self.off[self.turn] += 1
                     self.board, self.bar = self._apply_move_simulation(self.board, self.bar, move)
                     
                 # Check Win
@@ -271,7 +274,14 @@ class BackgammonGame:
             if valid_larger:
                  final_sequences = [s for s in final_sequences if self._get_move_distance(s[0]) == larger_die]
                  
-        return sorted(list(set(tuple(seq) for seq in final_sequences))) # uniqify
+        unique_sequences = list(set(tuple(seq) for seq in final_sequences))
+        # custom sort key: handles 'off' (str) vs int in tuples
+        def sort_key(seq):
+            # seq is tuple of moves ((start, end), ...)
+            # convert 'off' to special int for sorting
+            return tuple((s, e if isinstance(e, int) else -999) for s, e in seq)
+            
+        return sorted(unique_sequences, key=sort_key)
 
     def _get_move_distance(self, move):
         start, end = move
@@ -280,13 +290,16 @@ class BackgammonGame:
         if start == 'bar':
             if player == 0:
                 # 24 -> ?
+                # If end is 'off' (impossible logic but safe to check)
+                if end == 'off': return 25 
                 return 24 - end
             else:
                 # -1 -> ?
+                if end == 'off': return 25
                 return end - (-1)
         elif end == 'off':
             # Not exact distance if bearing off with larger die
-            return 0 # Special case, tough to distinguish 5 or 6 bearing off from 5 pt.
+            return 0 # Special case
         else:
             return abs(start - end)
 
@@ -353,12 +366,18 @@ class BackgammonGame:
                          moves.append((i, 'off'))
                     else:
                         # Over-shoot? Only allowed if no pieces on higher points.
-                        # Player 0: moving down. i is current. dest < -1.
-                        # Higher points would be range(i+1, 6).
-                        # Player 1: moving up. i is current. dest > 24.
-                        # Higher points would be range(19, i).
+                        # dest is numeric here?
+                        # Player 0: dest < -1.
+                        # Player 1: dest > 24.
                         
-                        overshoot = (player == 0 and dest < -1) or (player == 1 and dest > 24)
+                        overshoot = False
+                        if player == 0:
+                            if dest < -1:
+                                overshoot = True
+                        else:
+                            if dest > 24:
+                                overshoot = True
+                                
                         if overshoot:
                              # Check if any piece is "behind" this one (further from goal)
                              # Player 0: higher indices in home board.
@@ -439,9 +458,9 @@ class BackgammonGame:
 
     def check_win(self):
         """Checks if current player has borne off all checkers."""
-        if self.off[0] == 15:
+        if self.off[0] >= 15:
             return 0, self._calculate_score(0)
-        if self.off[1] == 15:
+        if self.off[1] >= 15:
             return 1, self._calculate_score(1)
         return -1, 0
 

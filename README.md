@@ -46,3 +46,20 @@ python -m src.play
 - `src/train.py`: Training script (PPO).
 - `src/play.py`: Interactive play script.
 - `tests/`: Unit tests.
+
+## Interpreting Training Metrics
+
+When running `src.train`, you will see real-time log outputs. Here is how to read them:
+
+- **`fps`**: Frames Per Second. Measures training speed. Higher is better.
+  - On your 20-CPU setup, ~700-1100 FPS is expected.
+- **`explained_variance`**: How well the Value function predicts rewards.
+  - Range: `0` (Random guessing) to `1` (Perfect prediction).
+  - *Good Signal*: It should trend upwards from near 0 to positive values (e.g., 0.2, 0.5, 0.8) as the agent learns the game flow.
+- **`value_loss`**: Error in the Value function's prediction.
+  - This may increase initially as the agent explores deeper games with higher rewards, but should eventually stabilize.
+- **`entropy_loss`**: A measure of randomness in the Policy.
+  - Slightly negative values (e.g., `-1.6`).
+  - *Stable* is good initially (exploring). *Decreasing* (closer to 0) means the agent is becoming certain about its strategy.
+- **`approx_kl`**: Divergence between the old and new policy.
+  - Measures how much the agent changed its mind in this update. Large spikes > 0.1 might indicate unstable learning.
