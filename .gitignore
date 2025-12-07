@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Project Specific
+backgammon_tensorboard/
+checkpoints/
+.pytest_cache/
+*.log
+
+# Checkpoints are large, but we might want the final one?
+# Ignore all zips in checkpoints folder, but keep root ones if needed?
+# Actually 'checkpoints/' handles the folder.
+
+# Mac
+.DS_Store
