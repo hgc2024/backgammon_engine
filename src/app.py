@@ -43,6 +43,7 @@ with st.sidebar:
     st.metric("Cube Value", f"{game.cube_value}")
 import streamlit as st
 import numpy as np
+import torch
 import time
 import sys
 import os
@@ -52,25 +53,29 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from src.game import BackgammonGame, GamePhase
 from src.env import BackgammonEnv
-from sb3_contrib import MaskablePPO
+from src.search import ExpectiminimaxAgent
 
 st.set_page_config(layout="wide", page_title="Backgammon RL")
 
 def init_state():
     if 'env' not in st.session_state:
-        st.session_state.env = BackgammonEnv()
+        st.session_state.env = BackgammonEnv(match_target=1)
         st.session_state.game = st.session_state.env.game
         st.session_state.obs, _ = st.session_state.env.reset()
         st.session_state.done = False
         
         # Load Model
-        model_path = "backgammon_final"
-        if os.path.exists(model_path + ".zip"):
-            st.session_state.model = MaskablePPO.load(model_path)
-            st.toast("Model Loaded!", icon="🤖")
+        # Load Model (TD-Gammon)
+        model_path = "td_backgammon.pth"
+        if os.path.exists(model_path):
+            st.session_state.agent = ExpectiminimaxAgent(model_path, device="cuda" if torch.cuda.is_available() else "cpu")
+            st.toast("TD-Gammon Engine Loaded!", icon="🧠")
         else:
-            st.session_state.model = None
+            st.session_state.agent = None
             st.toast("No Model Found. Playing vs Random.", icon="🎲")
+            
+    if 'total_score' not in st.session_state:
+        st.session_state.total_score = [0, 0]
 
 init_state()
 
@@ -459,37 +464,42 @@ if not st.session_state.done:
         
         step_needed = True
         
+        # Difficulty Selector (Only for CPU)
+        difficulty = st.radio("Engine Strength", ["1-Ply (Fast)", "2-Ply (Grandmaster)"], index=0, horizontal=True)
+        depth = 1 if "1-Ply" in difficulty else 2
+        
         if st.button("▶ Run CPU Move", type="primary"):
              # AI Step
-             obs = st.session_state.obs
-             masks = env.action_masks()
-             
-             # If CPU is rolling, it's Action 0 usually.
              current_phase = game.phase
              
-             if st.session_state.model:
-                 action, _ = st.session_state.model.predict(obs, action_masks=masks)
-                 action = int(action)
+             action = 0
+             
+             if st.session_state.agent:
+                 # Use Search Agent
+                 # Pass `game` object directly
+                 # Note: get_action expects 'game'
+                 st.caption(f"Thinking ({difficulty})...")
+                 action = st.session_state.agent.get_action(game, depth=depth)
+                 
+                 # Handling None? get_action returns None if no moves, but game logic shouldn't be here if no moves.
+                 if action is None: action = 0 
              else:
-                 valid = np.where(masks)[0]
-                 if len(valid) > 0:
-                     action = np.random.choice(valid)
+                 # Random
+                 moves = game.legal_moves
+                 if moves:
+                     action = np.random.randint(0, len(moves))
                  else:
-                     action = 0 
+                     action = 0
              
              # Log Logic
              if current_phase == GamePhase.DECIDE_CUBE_OR_ROLL:
                  if action == 0: 
                      st.session_state.logs.append("CPU rolled dice.")
-                     # After this step, the roll exists. We can't see it YET.
-                     # We see it next render.
                  else:
                      st.session_state.logs.append("CPU Doubled!")
                      
              elif current_phase == GamePhase.DECIDE_MOVE:
-                 # We can log the roll NOW because it already happened
                  st.session_state.logs.append(f"CPU is playing roll: {game.current_roll}")
-                 # Log the move
                  if action < len(game.legal_moves):
                       seq = game.legal_moves[action]
                       display_txt = " -> ".join([f"{s} to {e}" for s, e in seq])
@@ -503,9 +513,22 @@ if not st.session_state.done:
 
 else:
     st.balloons()
-    winner = "You" if game.score[0] > game.score[1] else "CPU"
-    st.success(f"Game Over! Winner: {winner}")
-    if st.button("Start New Game"):
+    st.balloons()
+    
+    # Calculate points from this game
+    pts_0 = game.score[0]
+    pts_1 = game.score[1]
+    
+    winner = "You" if pts_0 > pts_1 else "CPU"
+    pts = max(pts_0, pts_1)
+    
+    st.success(f"Game Over! Winner: {winner} ({pts} points)")
+    
+    if st.button("Play Next Game"):
+        # Update Session Score
+        st.session_state.total_score[0] += pts_0
+        st.session_state.total_score[1] += pts_1
+        
         env.reset()
         st.session_state.done = False
         st.rerun()
