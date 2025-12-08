@@ -456,6 +456,32 @@ class BackgammonGame:
             
         return b, ba
 
+    def get_afterstate(self, move_seq):
+        """
+        Simulates the entire move sequence and returns the resulting Game logic components.
+        Returns: (board, bar, off, turn_switched_flag)
+        
+        NOTE: This does NOT switch the turn. 
+        Evaluating 'Afterstate' usually means evaluating the board from the opponent's perspective (if turn switches)
+        OR evaluating it from current perspective?
+        Standard TD-Gammon: Output = P(Current Player Wins).
+        If I move -> Board S'.
+        Next is Opponent's turn.
+        V(S') should be high if S' is good for ME.
+        So we must check V(S') from MY perspective (Feature extraction must be aware of who is 'Me').
+        """
+        b = self.board.copy()
+        ba = self.bar.copy()
+        o = self.off.copy()
+        player = self.turn
+        
+        for move in move_seq:
+            if move[1] == 'off':
+                o[player] += 1
+            b, ba = self._apply_move_simulation(b, ba, move)
+            
+        return b, ba, o
+
     def check_win(self):
         """Checks if current player has borne off all checkers."""
         if self.off[0] >= 15:

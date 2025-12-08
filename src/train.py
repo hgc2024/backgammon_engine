@@ -9,6 +9,7 @@ from stable_baselines3.common.callbacks import CheckpointCallback
 from src.env import BackgammonEnv, create_env
 
 from src.features import BackgammonResNet
+from src.evaluate import EvaluationCallback
 
 def main():
     parser = argparse.ArgumentParser()
@@ -35,13 +36,6 @@ def main():
     )
     
     # PPO Hyperparameters
-    # High batch size for GPU efficiency?
-    # n_steps * num_cpu = total_steps_per_update
-    # 2048 * 20 = 40960 steps per update.
-    # Maybe lower n_steps if we want more frequent updates?
-    # But PPO likes large batches.
-    
-    # PPO Hyperparameters
     model = MaskablePPO(
         "MlpPolicy",
         env,
@@ -65,9 +59,13 @@ def main():
         name_prefix='ppu_backgammon'
     )
     
+    # Create Eval Env (Single process)
+    # We use a separate env for evaluation to not mess up the vector env
+    eval_env = DummyVecEnv([create_env])
+    eval_callback = EvaluationCallback(eval_env, eval_freq=50000, n_eval_episodes=50)
+    
     # Train
-    # Set total timesteps huge. Can be stopped manually.
-    model.learn(total_timesteps=args.steps, callback=checkpoint_callback)
+    model.learn(total_timesteps=args.steps, callback=[checkpoint_callback, eval_callback])
     
     model.save("backgammon_final")
     print("Training finished.")
