@@ -24,42 +24,36 @@ A Reinforcement Learning engine for Backgammon supporting **Doubling Cube**, **C
 
 ## Usage
 
-### Training
-To start training the agent (Self-Play):
+### Training (TD-Gammon)
+To start training the agent using the Temporal Difference (TD) learning algorithm (state-of-the-art for Backgammon):
 ```cmd
 .venv\Scripts\activate
-python -m src.train
+python -m src.train_td
 ```
-This uses 20 CPU cores for parallel environment simulation and the GPU for model updates.
-Checkpoints are saved in `checkpoints/`.
+This script implements:
+- **King of the Hill Evaluation**: Every 1,000 episodes, the trainee challenges the current "Champion" (`checkpoints/best_so_far.pth`). If it wins >55% of 100 games, it dethrones the champion.
+- **Opponent Pool (League Training)**: 20% of games are played against random past checkpoints to prevent forgetting and ensure robustness.
+- **Stability Features**: Epsilon decay, Learning Rate scheduling, and full state checkpointing.
 
-### Playing
-To play against the trained agent (or a random agent if no model is found):
+Checkpoints are saved in `checkpoints/`. The best model is always copied to `td_backgammon_best.pth`.
+
+### Web UI
+To play against the agent in a graphical interface:
 ```cmd
 .venv\Scripts\activate
-python -m src.play
+streamlit run src/app.py
 ```
+- **Engine Strength**: Choose between 1-Ply (Fast) and 2-Ply (Stronger).
+- **Debug Features**: View the engine's win probability confidence in real-time.
 
 ## Project Structure
-- `src/game.py`: Core Backgammon logic (Doubling, Rules).
-- `src/env.py`: Gymnasium Environment wrapper.
-- `src/train.py`: Training script (PPO).
-- `src/play.py`: Interactive play script.
-- `tests/`: Unit tests.
+- `src/train_td.py`: **Main Training Script** (TD-Lambda, Self-Play + League).
+- `src/game.py`: Core Backgammon logic.
+- `src/model.py`: Neural Network Architecture (Tanh output).
+- `src/search.py`: Expectiminimax Agent for inference/playing.
+- `src/app.py`: Streamlit Web UI.
 
-## Interpreting Training Metrics
-
-When running `src.train`, you will see real-time log outputs. Here is how to read them:
-
-- **`fps`**: Frames Per Second. Measures training speed. Higher is better.
-  - On your 20-CPU setup, ~700-1100 FPS is expected.
-- **`explained_variance`**: How well the Value function predicts rewards.
-  - Range: `0` (Random guessing) to `1` (Perfect prediction).
-  - *Good Signal*: It should trend upwards from near 0 to positive values (e.g., 0.2, 0.5, 0.8) as the agent learns the game flow.
-- **`value_loss`**: Error in the Value function's prediction.
-  - This may increase initially as the agent explores deeper games with higher rewards, but should eventually stabilize.
-- **`entropy_loss`**: A measure of randomness in the Policy.
-  - Slightly negative values (e.g., `-1.6`).
-  - *Stable* is good initially (exploring). *Decreasing* (closer to 0) means the agent is becoming certain about its strategy.
-- **`approx_kl`**: Divergence between the old and new policy.
-  - Measures how much the agent changed its mind in this update. Large spikes > 0.1 might indicate unstable learning.
+## Training Metrics
+- **Win Rate vs Random**: Sanity check every 250 episodes.
+- **Win Rate vs Champion**: The true test of progress (every 1,000 episodes).
+- **Loss**: TD-Error (difference between current state value and next state value).

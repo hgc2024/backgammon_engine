@@ -4,6 +4,8 @@ import numpy as np
 import os
 import random
 from collections import deque
+import multiprocessing as mp
+from tqdm import tqdm
 from src.game import BackgammonGame, GamePhase
 from src.model import BackgammonValueNet
 
@@ -54,7 +56,7 @@ def evaluate_vs_random(agent_net, device, n_games=50):
     
     agent_net.eval()
     
-    for _ in range(n_games):
+    for _ in tqdm(range(n_games), desc="Eval vs Random", leave=False):
         game.reset_match()
         game_over = False
         
@@ -119,13 +121,193 @@ def evaluate_vs_random(agent_net, device, n_games=50):
     agent_net.train()
     return wins / n_games
 
+def evaluate_agent_vs_agent(agent_net, opponent_net, device, n_games=50):
+    """
+    Plays n_games where Agent plays P0 and Opponent plays P1.
+    Both use 1-ply greedy search.
+    Returns Win Rate for Agent (P0).
+    """
+    game = BackgammonGame()
+    wins = 0
+    
+    agent_net.eval()
+    opponent_net.eval()
+    
+    for _ in tqdm(range(n_games), desc="Agent vs Agent", leave=False):
+        game.reset_match()
+        game_over = False
+        
+        while not game_over:
+            if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
+                game.step(0) # Always Roll
+            elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
+                game.step(0) # Always Take
+            elif game.phase == GamePhase.DECIDE_MOVE:
+                moves = game.legal_moves
+                if not moves:
+                    game.turn = 1 - game.turn # Auto-pass
+                    game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+                    continue
+                
+                # Determine Active Net
+                current_net = agent_net if game.turn == 0 else opponent_net
+                # Perspective of the "Next Player" (Opponent of current turn)
+                next_perspective = 1 - game.turn 
+                
+                # 1-Ply Search
+                best_idx = 0
+                
+                # Batch eval
+                boards = []
+                for seq in moves:
+                    b, ba, o = game.get_afterstate(seq)
+                    # We evaluate S' from Next Player's perspective
+                    # If Current = P0, Next = P1.
+                    obs = get_obs_from_state(b, ba, o, next_perspective, game.score, game.cube_value, 1)
+                    boards.append(obs)
+                    
+                if not boards:
+                    best_idx = 0
+                else:
+                    t = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
+                    with torch.no_grad():
+                        vals = current_net(t).squeeze(1) 
+                    
+                    # Current Player wants to MINIMIZE Next Player's Advantage
+                    # V(s) = Next Player Advantage (-1 to 1)
+                    # So Argmin(V) is best for Current Player.
+                    best_idx = torch.argmin(vals).item()
+                    
+                game.step(best_idx)
+                    
+            if game.phase == GamePhase.GAME_OVER:
+                if game.score[0] > game.score[1]:
+                    wins += 1
+                game_over = True
+                
+    agent_net.train()
+    # Opponent net likely stays in eval/train state as passed, but typically eval.
+    return wins / n_games
+
+def play_game_worker(args):
+    """
+    Worker function for parallel evaluation.
+    args: (agent_state_dict, champion_state_dict, seed)
+    Returns: 1 if Agent (P0) wins, 0 otherwise.
+    """
+    agent_state, cham_state, seed = args
+    
+    # Set seed for reproducibility in this process
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    
+    # CPU operation for workers
+    device = torch.device('cpu') 
+    
+    # Init Game and Nets
+    game = BackgammonGame()
+    agent = BackgammonValueNet().to(device)
+    cham = BackgammonValueNet().to(device)
+    
+    agent.load_state_dict(agent_state)
+    cham.load_state_dict(cham_state)
+    agent.eval()
+    cham.eval()
+    
+    game.reset_match()
+    game_over = False
+    
+    while not game_over:
+        if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
+            game.step(0) 
+        elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
+            game.step(0)
+        elif game.phase == GamePhase.DECIDE_MOVE:
+            moves = game.legal_moves
+            if not moves:
+                game.turn = 1 - game.turn 
+                game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+                continue
+            
+            # Identify current player
+            current_net = agent if game.turn == 0 else cham
+            next_perspective = 1 - game.turn
+            
+            boards = []
+            for seq in moves:
+                b, ba, o = game.get_afterstate(seq)
+                obs = get_obs_from_state(b, ba, o, next_perspective, game.score, game.cube_value, 1)
+                boards.append(obs)
+            
+            if not boards:
+                best_idx = 0
+            else:
+                t = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
+                with torch.no_grad():
+                    vals = current_net(t).squeeze(1)
+                best_idx = torch.argmin(vals).item()
+                
+            game.step(best_idx)
+            
+        if game.phase == GamePhase.GAME_OVER:
+            if game.score[0] > game.score[1]:
+                return 1 # Agent Wins
+            else:
+                return 0 # Agent Loses
+    return 0
+
+def run_challenge(net, champion_net, episode, device, n_games=100, num_workers=None):
+    if num_workers is None:
+        num_workers = max(1, os.cpu_count() - 5) # Leave 5 cores for system/GPU-feeder
+        
+    print(f"Running King of the Hill Challenge (Challenger vs Champion) on {num_workers} CPUs...")
+    
+    # Prepare args for workers (Must use CPU state dicts)
+    agent_state = {k: v.cpu() for k, v in net.state_dict().items()}
+    cham_state = {k: v.cpu() for k, v in champion_net.state_dict().items()}
+    
+    tasks = []
+    for i in range(n_games):
+        tasks.append((agent_state, cham_state, episode * 10000 + i))
+        
+    wins = 0
+    with mp.Pool(processes=num_workers) as pool:
+        # Use imap for progress bar
+        results = list(tqdm(pool.imap_unordered(play_game_worker, tasks), total=n_games, desc="Parallel Arena", leave=False))
+        wins = sum(results)
+        
+    challenger_win_rate = wins / n_games
+    print(f">>> CHALLENGE: Win Rate vs Champion: {challenger_win_rate*100:.1f}% ({wins}/{n_games})")
+    
+    if challenger_win_rate > 0.55:
+        print(f"*** KING OF THE HILL: PROMOTION! (Win Rate {challenger_win_rate*100:.1f}%) ***")
+        torch.save({
+            'episode': episode,
+            'model_state_dict': net.state_dict(),
+        }, "checkpoints/best_so_far.pth")
+        
+        champion_net.load_state_dict(net.state_dict())
+        print(">>> New Champion Crowned.")
+        return True
+    else:
+        print(f">>> Challenge Failed. Champion remains undefeated.")
+        return False
+
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
     net = BackgammonValueNet().to(device)
-    # Fine-Tuning: Start with lower LR (5e-5) to avoid breaking existing knowledge
-    optimizer = optim.Adam(net.parameters(), lr=5e-5, weight_decay=1e-5) 
+    net = BackgammonValueNet().to(device)
+    # Fine-Tuning: Start with lower LR (2e-5) to avoid breaking existing knowledge (Robustness)
+    optimizer = optim.Adam(net.parameters(), lr=2e-5, weight_decay=1e-5) 
+    loss_fn = torch.nn.MSELoss()
+    
+    # ... (skipping unchanged lines implicitly by targeting specific blocks if possible, but replace_file_content needs contiguous)
+    # Actually I need to do multiple edits or one big one.
+    # I will do just the LR change first here.
+ 
     loss_fn = torch.nn.MSELoss()
     
     start_episode = 100_000
@@ -186,15 +368,27 @@ def main():
     # Metrics
     recent_losses = deque(maxlen=100)
     recent_magnitudes = deque(maxlen=100) # Track avg |V(s)|
-    
+    # Champion Net (The Boss)
+    champion_net = BackgammonValueNet().to(device)
+    champion_net.eval()
+    if os.path.exists("checkpoints/best_so_far.pth"):
+         try:
+             d = torch.load("checkpoints/best_so_far.pth", map_location=device)
+             if isinstance(d, dict) and 'model_state_dict' in d:
+                 champion_net.load_state_dict(d['model_state_dict'])
+             else:
+                 champion_net.load_state_dict(d)
+             print("Loaded Champion for King of the Hill evaluation.")
+         except:
+             champion_net.load_state_dict(net.state_dict()) # Self is Champ
+    else:
+         champion_net.load_state_dict(net.state_dict())
+
+    # Main Loop
     game = BackgammonGame()
     
-    # Opponent Net (for Pool Play)
-    opponent_net = BackgammonValueNet().to(device)
-    opponent_net.eval()
-    
-    # Init past_models list
-    past_models = []
+    # Run Initial Challenge (Parallel Test)
+    run_challenge(net, champion_net, start_episode, device, n_games=50)
     
     for episode in range(start_episode, episodes + 1):
         # Stability: Epsilon Decay
@@ -340,6 +534,7 @@ def main():
              loss = loss_fn(preds, targets_t)
              optimizer.zero_grad()
              loss.backward()
+             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0) # Stability
              optimizer.step()
              recent_losses.append(loss.item())
              recent_magnitudes.append(torch.mean(torch.abs(preds)).item())
@@ -387,6 +582,11 @@ def main():
                 }, "checkpoints/best_so_far.pth")
                 
                 print(f"*** New Best Model Saved! ({win_rate*100:.1f}%) [Added to Pool] ***")
+            
+        # King of the Hill Challenge (Every 1000 episodes)
+        # Reduced frequency and games to avoid training bottlenecks
+        if episode % 1000 == 0:
+            run_challenge(net, champion_net, episode, device, n_games=50)
             
         if episode % 500 == 0:
              torch.save({

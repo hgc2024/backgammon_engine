@@ -23,7 +23,8 @@ def init_state():
         st.session_state.done = False
         
         # Load Model (TD-Gammon)
-        model_path = "td_backgammon_best.pth"
+        # Using the current "Champion" model for testing
+        model_path = "checkpoints/best_so_far.pth"
         if os.path.exists(model_path):
             st.session_state.agent = ExpectiminimaxAgent(model_path, device="cuda" if torch.cuda.is_available() else "cpu")
             st.toast("TD-Gammon Engine Loaded!", icon="🧠")
