@@ -31,13 +31,13 @@ class BackgammonGame:
         self.crawford_played = False # True if the Crawford game has already been played
         self.reset_match()
 
-    def reset_match(self):
+    def reset_match(self, starting_player: int = 0):
         self.score = [0, 0]
         self.crawford_active = False
         self.crawford_played = False
-        self.reset_game()
+        self.reset_game(starting_player=starting_player)
 
-    def reset_game(self):
+    def reset_game(self, starting_player: int = 0):
         """Resets the board for a new game within the match."""
         # 24 points: 0-23
         self.board = np.zeros(24, dtype=int)
@@ -59,7 +59,7 @@ class BackgammonGame:
         self.bar = [0, 0] # [Player 0 count, Player 1 count]
         self.off = [0, 0] # [Player 0 count, Player 1 count]
         
-        self.turn = 0 # 0 or 1
+        self.turn = starting_player # 0 or 1
         self.cube_value = 1
         self.cube_owner = -1 # -1: centered, 0: player 0, 1: player 1
         
@@ -77,6 +77,7 @@ class BackgammonGame:
             
         self.phase = GamePhase.DECIDE_CUBE_OR_ROLL
         self.current_roll = []
+        self.dice = [] # Current remaining dice (expanded e.g. [6,6,6,6])
         self.legal_moves = []
 
             
@@ -164,11 +165,150 @@ class BackgammonGame:
                 # Switch Turn
                 self.turn = 1 - self.turn
                 self.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+                self.legal_moves = [] # Clear stale moves
+                
+        return 0, -1, False
+
+    def get_legal_partial_moves(self) -> List[Tuple[int, int]]:
+        """
+        Returns list of (start, end) single moves valid for the CURRENT remaining dice.
+        For Human UI.
+        """
+        moves = []
+        
+        # We need to try each unique die in self.dice
+        unique_dice = set(self.dice)
+        
+        for die in unique_dice:
+            # Generate moves for this die
+            single_moves = self._generate_single_moves(self.board, self.bar, die)
+            moves.extend(single_moves)
+            
+        return sorted(list(set(moves)), key=lambda x: (x[0] if isinstance(x[0], int) else -1))
+
+    def step_partial(self, move: Tuple[int, int]) -> Tuple[int, int, bool]:
+        """
+        Applies a SINGLE atomic move (Human Play).
+        1. Validates move is legal for one of the active dice.
+        2. Updates Board.
+        3. Removes Used Die.
+        4. Checks if turn is finished.
+        """
+        start, end = move
+        
+        # 1. Deduce which die was used
+        die_used = -1
+        dist = self._get_move_distance(move)
+        
+        # Exact Match?
+        if dist in self.dice:
+            die_used = dist
+        else:
+            # Must be bearing off with larger die?
+            # Check logic
+            if end == 'off':
+                # bearing off. 
+                # If exact die exists, use it.
+                if dist in self.dice:
+                    die_used = dist
+                else:
+                    # Must use larger die. Find smallest die >= dist?
+                    # Actually rule is: must use exact die if possible, else if bearing off from highest point, use larger.
+                    # Simplified: if dist is not in dice, look for max(dice) > dist.
+                    # We assume UI only sends valid moves validated by _generate_single_moves logic.
+                    # But _generate checks strict logic.
+                    # If we bear off from 2 using 6, dist is 3 (2-(-1)). Wait.
+                    # _get_move_distance returns 0 if off? No, let's fix that helper logic or reuse it carefully.
+                    
+                    # _get_move_distance(start, 'off') returns 0?
+                    # Let's fix _get_move_distance to return actual pips required.
+                    pass
+        
+        # Re-calc distance carefully for BearOff logic if needed
+        if die_used == -1:
+            # Fallback logic for bearing off with larger die
+            # The only case dist != die is bearing off with larger die.
+            valid_dice = [d for d in self.dice if d >= dist]
+            if valid_dice:
+                # AMBIGUITY: If multiple dice work (e.g. bear off from 2 using 3 or 4),
+                # which one do we burn?
+                # Heuristic: Burn the SMALLEST sufficient die to save larger ones?
+                # Or LARGEST?
+                # Standard convention: You usually want to save large dice? No, saving small dice is good for flexibility?
+                # In most UI "Bear Off" implies using the die that makes it legal.
+                # If both 5 and 6 work for 'off from 2', standard rule says you can use 6? Or 5?
+                # You can choose.
+                # Auto-choice: Use MIN (Smallest sufficient).
+                die_used = min(valid_dice) 
+            else:
+                 # Logic Error: No die large enough?
+                 # This shouldn't happen if move is legal.
+                 # Safety: if not found, use closest match?
+                 pass
+                
+        if die_used == -1:
+             # Error state: Move didn't match any die?
+             # Fallback: Just take the first die that is >= dist?
+             # This is risky without strict validation. 
+             # Assuming input move IS legal.
+             # We just assume the first die that COULD generate this move is the one used.
+             # Let's trust logic.
+             # Re-run _generate_single_moves for each die and see which produced this move.
+             for d in sorted(self.dice):
+                 opts = self._generate_single_moves(self.board, self.bar, d)
+                 if move in opts:
+                     die_used = d
+                     break
+                     
+        if die_used != -1:
+            self.dice.remove(die_used) # Remove FIRST occurrence
+        else:
+            print(f"CRITICAL ERROR: Move {move} not found in dice {self.dice}")
+            return 0, -1, False
+            
+        # 2. Apply Move
+        self.board, self.bar = self._apply_move_simulation(self.board, self.bar, move)
+        if end == 'off':
+            self.off[self.turn] += 1
+            
+        # 3. Check Win
+        winner, pts = self.check_win()
+        if winner != -1:
+            self.score[winner] += pts
+            self.phase = GamePhase.GAME_OVER
+            return pts, winner, True
+            
+        # 4. Check Turn End
+        if not self.dice:
+            # Turn Over
+            self.turn = 1 - self.turn
+            self.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+        else:
+            # Dice remaining. Check if any legal moves exist for remaining dice.
+            can_move = False
+            unique_d = set(self.dice)
+            for d in unique_d:
+                if self._generate_single_moves(self.board, self.bar, d):
+                    can_move = True
+                    break
+            
+            if not can_move:
+                # No moves left for remaining dice -> Turn Over
+                self.turn = 1 - self.turn
+                self.phase = GamePhase.DECIDE_CUBE_OR_ROLL
                 
         return 0, -1, False
 
     def _roll_and_start_turn(self):
         self.current_roll = self.roll_dice()
+        
+        # Expand doubles
+        d = list(self.current_roll)
+        if d[0] == d[1]:
+            d = [d[0]] * 4
+        self.dice = d
+        
+        # For CPU (Full Turn Logic)
         self.legal_moves = self.get_legal_moves(self.current_roll)
         
         if not self.legal_moves:
@@ -285,23 +425,28 @@ class BackgammonGame:
 
     def _get_move_distance(self, move):
         start, end = move
-        # Handle Bar
         player = self.turn
+        
         if start == 'bar':
+             # From Bar to End
+             if player == 0:
+                 # 24 -> end (e.g. 23). Dist = 1.
+                 return 24 - end
+             else:
+                 # -1 -> end (e.g. 0). Dist = 1.
+                 return end - (-1)
+                 
+        if end == 'off':
+            # Distance from Start to "Virtual 0/-1"
             if player == 0:
-                # 24 -> ?
-                # If end is 'off' (impossible logic but safe to check)
-                if end == 'off': return 25 
-                return 24 - end
+                # Start index (e.g. 0 is 1 pip, 5 is 6 pips)
+                return start + 1 
             else:
-                # -1 -> ?
-                if end == 'off': return 25
-                return end - (-1)
-        elif end == 'off':
-            # Not exact distance if bearing off with larger die
-            return 0 # Special case
-        else:
-            return abs(start - end)
+                # Start index (e.g. 23 is 1 pip, 18 is 6 pips)
+                return 24 - start
+                
+        # Normal Move
+        return abs(start - end)
 
     def _find_moves_recursive(self, board, bar, dice) -> List[List[Tuple[int, int]]]:
         if not dice:

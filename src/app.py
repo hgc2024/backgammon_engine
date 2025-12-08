@@ -1,52 +1,10 @@
 import streamlit as st
 import numpy as np
-import time
-import sys
-import os
-
-# Path hack to allow importing src
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from src.game import BackgammonGame, GamePhase
-from src.env import BackgammonEnv
-from sb3_contrib import MaskablePPO
-
-st.set_page_config(layout="wide", page_title="Backgammon RL")
-
-def init_state():
-    if 'env' not in st.session_state:
-        st.session_state.env = BackgammonEnv()
-        st.session_state.game = st.session_state.env.game
-        st.session_state.obs, _ = st.session_state.env.reset()
-        st.session_state.done = False
-        
-        # Load Model
-        model_path = "backgammon_final"
-        if os.path.exists(model_path + ".zip"):
-            st.session_state.model = MaskablePPO.load(model_path)
-            st.toast("Model Loaded!", icon="🤖")
-        else:
-            st.session_state.model = None
-            st.toast("No Model Found. Playing vs Random.", icon="🎲")
-
-init_state()
-
-game = st.session_state.game
-env = st.session_state.env
-
-st.title("Backgammon RL Engine")
-
-# --- Sidebar ---
-with st.sidebar:
-    st.header("Game Status")
-    st.metric("Score (You vs Cpu)", f"{game.score[0]} - {game.score[1]}")
-    st.metric("Cube Value", f"{game.cube_value}")
-import streamlit as st
-import numpy as np
 import torch
 import time
 import sys
 import os
+import streamlit.components.v1 as components
 
 # Path hack to allow importing src
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -64,7 +22,6 @@ def init_state():
         st.session_state.obs, _ = st.session_state.env.reset()
         st.session_state.done = False
         
-        # Load Model
         # Load Model (TD-Gammon)
         model_path = "td_backgammon.pth"
         if os.path.exists(model_path):
@@ -76,6 +33,9 @@ def init_state():
             
     if 'total_score' not in st.session_state:
         st.session_state.total_score = [0, 0]
+    
+    if 'logs' not in st.session_state:
+        st.session_state.logs = []
 
 init_state()
 
@@ -87,28 +47,37 @@ st.title("Backgammon RL Engine")
 # --- Sidebar ---
 with st.sidebar:
     st.header("Game Status")
-    st.metric("Score (You vs Cpu)", f"{game.score[0]} - {game.score[1]}")
+    
+    # Show Session Score
+    ts = st.session_state.total_score
+    current = game.score
+    st.metric("Session Score (You - CPU)", f"{ts[0] + current[0]} - {ts[1] + current[1]}")
+    
     st.metric("Cube Value", f"{game.cube_value}")
     st.metric("Cube Owner", "Cpu" if game.cube_owner == 1 else ("You" if game.cube_owner == 0 else "Centered"))
     
-    if st.button("Reset Match"):
-        env.reset()
+    # Difficulty Selector
+    difficulty = st.radio("Engine Strength", ["1-Ply (Fast)", "2-Ply (Grandmaster)"], index=0, horizontal=True)
+    st.session_state.depth = 1 if "1-Ply" in difficulty else 2
+    
+    st.divider()
+    
+    # Starting Player
+    starter = st.radio("Who Starts?", ["You (White)", "CPU (Red)"], index=0, horizontal=True)
+    start_idx = 0 if "You" in starter else 1
+    
+    if st.button("Reset / Start Match", key="reset_match_sidebar"):
+        env.reset(options={'starting_player': start_idx})
         st.session_state.done = False
         st.session_state.logs = []
+        st.session_state.total_score = [0, 0]
         st.rerun()
-        
-    st.divider()
     st.subheader("Action Log")
-    if 'logs' not in st.session_state:
-        st.session_state.logs = []
     
     for log in reversed(st.session_state.logs[-10:]):
         st.caption(log)
 
 # --- Board Visualization ---
-# --- Board Visualization ---
-import streamlit.components.v1 as components
-
 def draw_board_canvas():
     """renders a simple visual representation using HTML/CSS/SVG."""
     board = game.board
@@ -125,7 +94,6 @@ def draw_board_canvas():
         y1 = 0 if is_top else height
         y2 = height * 0.4 if is_top else height * 0.6
         y3 = 0 if is_top else height
-        # Ensure distinct IDs or just basic shapes
         return f'<polygon points="{x},{y1} {x + p_w/2},{y2} {x + p_w},{y3}" fill="{color}" stroke="black" stroke-width="1"/>'
         
     # Helper to draw checker
@@ -167,176 +135,6 @@ def draw_board_canvas():
             num = abs(count)
             # Stack downwards
             for c in range(min(num, 5)):
-                # If more than 5, verify visual stacking? 
-                # Just cap at 5 visually for now or stack tighter? 
-                # Let's stack standard.
-                cy = (p_w/2) + (c * p_w)
-                txt = num if (c==4 and num>5) else 0
-                svg_elements.append(checker(x + p_w/2, cy, c_color, txt))
-
-    # Bottom Points: 11..0 (Left to Right)
-    for i in range(11, -1, -1):
-        pos_idx = 11 - i
-        is_right = pos_idx >= 6
-        
-        x = pos_idx * p_w
-        if is_right: x += 30
-        
-        color = "#8b4513" if i % 2 == 0 else "#d2b48c"
-        svg_elements.append(tri(i, x, False, color))
-        
-        # Checkers
-        count = board[i]
-        if count != 0:
-            c_color = "white" if count > 0 else "black"
-            num = abs(count)
-            # Stack upwards
-            for c in range(min(num, 5)):
-                cy = height - (p_w/2) - (c * p_w)
-                txt = num if (c==4 and num>5) else 0
-                svg_elements.append(checker(x + p_w/2, cy, c_color, txt))
-                
-    # Draw Bar Checkers
-    if bar[0] > 0: # White on bar
-         svg_elements.append(checker(width/2, height*0.66, "white", bar[0]))
-    if bar[1] > 0: # Black on bar
-         svg_elements.append(checker(width/2, height*0.33, "black", bar[1]))
-         
-    svg_content = "".join(svg_elements)
-    full_html = f'''
-        <div style="display: flex; justify-content: center;">
-            <svg viewBox="0 0 {width} {height}" width="100%" height="400" xmlns="http://www.w3.org/2000/svg">
-                {svg_content}
-            </svg>
-        </div>
-    '''
-    components.html(full_html, height=420)
-
-draw_board_canvas()
-
-import streamlit as st
-import numpy as np
-import time
-import sys
-import os
-
-# Path hack to allow importing src
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from src.game import BackgammonGame, GamePhase
-from src.env import BackgammonEnv
-from sb3_contrib import MaskablePPO
-
-st.set_page_config(layout="wide", page_title="Backgammon RL")
-
-def init_state():
-    if 'env' not in st.session_state:
-        st.session_state.env = BackgammonEnv()
-        st.session_state.game = st.session_state.env.game
-        st.session_state.obs, _ = st.session_state.env.reset()
-        st.session_state.done = False
-        
-        # Load Model
-        model_path = "backgammon_final"
-        if os.path.exists(model_path + ".zip"):
-            st.session_state.model = MaskablePPO.load(model_path)
-            st.toast("Model Loaded!", icon="🤖")
-        else:
-            st.session_state.model = None
-            st.toast("No Model Found. Playing vs Random.", icon="🎲")
-
-init_state()
-
-game = st.session_state.game
-env = st.session_state.env
-
-st.title("Backgammon RL Engine")
-
-# --- Sidebar ---
-with st.sidebar:
-    st.header("Game Status")
-    st.metric("Score (You vs Cpu)", f"{game.score[0]} - {game.score[1]}")
-    st.metric("Cube Value", f"{game.cube_value}")
-    st.metric("Cube Owner", "Cpu" if game.cube_owner == 1 else ("You" if game.cube_owner == 0 else "Centered"))
-    
-    if st.button("Reset Match", key="reset_match_sidebar"):
-        env.reset()
-        st.session_state.done = False
-        st.session_state.logs = []
-        st.rerun()
-        
-    st.divider()
-    st.subheader("Action Log")
-    if 'logs' not in st.session_state:
-        st.session_state.logs = []
-    
-    for log in reversed(st.session_state.logs[-10:]):
-        st.caption(log)
-
-# --- Board Visualization ---
-import streamlit.components.v1 as components
-
-def draw_board_canvas():
-    """renders a simple visual representation using HTML/CSS/SVG."""
-    board = game.board
-    bar = game.bar
-    off = game.off
-    
-    # SVG Config
-    width=600
-    height=400
-    p_w = width / 15 # Point width
-    
-    # Helper to draw triangle
-    def tri(idx, x, is_top, color):
-        y1 = 0 if is_top else height
-        y2 = height * 0.4 if is_top else height * 0.6
-        y3 = 0 if is_top else height
-        # Ensure distinct IDs or just basic shapes
-        return f'<polygon points="{x},{y1} {x + p_w/2},{y2} {x + p_w},{y3}" fill="{color}" stroke="black" stroke-width="1"/>'
-        
-    # Helper to draw checker
-    def checker(x, y, color, count):
-        r = p_w / 2.5
-        fill = "white" if color=="white" else "#d9534f" # Reddish for CPU
-        stroke = "black" if color=="white" else "#800000"
-        t_col = "black" if color=="white" else "white"
-        
-        return f'''
-        <g>
-            <circle cx="{x}" cy="{y}" r="{r}" fill="{fill}" stroke="{stroke}" stroke-width="2"/>
-            <text x="{x}" y="{y+5}" font-size="12" text-anchor="middle" fill="{t_col}" font-family="sans-serif" font-weight="bold">{count if count > 0 else ""}</text>
-        </g>
-        '''
-        
-    svg_elements = []
-    
-    # Draw Background
-    svg_elements.append(f'<rect width="{width}" height="{height}" fill="#f0d9b5"/>') # Lighter wood
-    svg_elements.append(f'<rect x="{width/2-2}" y="0" width="4" height="{height}" fill="#6b4c35"/>') # Bar line
-    
-    # Draw Points
-    # Top: 12..23 (Left to Right)
-    for i in range(12, 24):
-        pos_idx = i - 12
-        is_right = pos_idx >= 6
-        
-        x = pos_idx * p_w
-        if is_right: x += 30 # Bar offset
-        
-        color = "#8b4513" if i % 2 == 1 else "#d2b48c" # Dark Brown / Tan
-        svg_elements.append(tri(i, x, True, color))
-        
-        # Checkers
-        count = board[i]
-        if count != 0:
-            c_color = "white" if count > 0 else "black"
-            num = abs(count)
-            # Stack downwards
-            for c in range(min(num, 5)):
-                # If more than 5, verify visual stacking? 
-                # Just cap at 5 visually for now or stack tighter? 
-                # Let's stack standard.
                 cy = (p_w/2) + (c * p_w)
                 txt = num if (c==4 and num>5) else 0
                 svg_elements.append(checker(x + p_w/2, cy, c_color, txt))
@@ -422,97 +220,131 @@ if not st.session_state.done:
                  st.rerun()
                  
         elif game.phase == GamePhase.DECIDE_MOVE:
-            st.info(f"**Your Roll:** {game.current_roll}")
-            moves = game.legal_moves
+            st.info(f"**Your Roll:** {game.dice}") # Use .dice to show remaining
             
-            if not moves:
+            # 1. Get ALL legal partial moves
+            # List of (start, end)
+            partial_moves = game.get_legal_partial_moves()
+            
+            if not partial_moves:
                 st.warning("No legal moves available.")
                 if st.button("Pass Turn"):
-                     # Auto-pass logic handled by engine or needs dummy step?
-                     # The engine should have auto-switched if no moves. 
-                     # If we are here, wait, `_roll_and_start_turn` switches if no moves.
-                     # So user should NEVER see this state unless logic is weird.
-                     # But purely defensive:
-                     st.session_state.logs.append("You passed (No moves).")
-                     # Force turn switch if engine stuck?
-                     # Actually, `step` handles move selection.
-                     pass 
+                     # Force turn switch if engine handled it or just refresh
+                     # If get_legal_partial_moves is empty but dice exist, step_partial logic 
+                     # should have auto-switched turn? 
+                     # self.dice check in step_partial handles it.
+                     # But if we just STARTED turn and have no moves?
+                     # _roll_and_start_turn handles initial block.
+                     # So we should only be here if we made 1 move and are now blocked.
+                     
+                     # Manually force turn switch
+                     game.turn = 1 - game.turn
+                     game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+                     st.session_state.logs.append("You passed.")
+                     st.rerun()
             else:
-                # Format options for readability
-                options = {}
-                for i, seq in enumerate(moves):
-                    # seq is tuple of ((start, end), ...)
-                    display_txt = " -> ".join([f"{s} to {e}" for s, e in seq])
-                    options[i] = display_txt
+                # 2. Interactive Selection State
+                if 'selected_source' not in st.session_state:
+                    st.session_state.selected_source = None
                     
-                selected_idx = st.selectbox("Select Move:", options.keys(), format_func=lambda x: options[x])
+                # Group moves by Source
+                sources = sorted(list(set([m[0] for m in partial_moves])), key=lambda x: (x if isinstance(x, int) else -1))
                 
-                if st.button("Make Move", type="primary"):
-                    st.session_state.logs.append(f"You moved: {options[selected_idx]}")
-                    obs, reward, done, _, _ = env.step(selected_idx)
-                    st.session_state.done = done
-                    st.rerun()
+                # If source selected, show destinations
+                if st.session_state.selected_source is not None:
+                    src = st.session_state.selected_source
+                    
+                    # Verify source still valid (in case dice changed?)
+                    valid_dests = [m[1] for m in partial_moves if m[0] == src]
+                    
+                    if not valid_dests:
+                        st.session_state.selected_source = None
+                        st.rerun()
+                    
+                    st.markdown(f"**Selected Checkers at: {src}**")
+                    
+                    cols = st.columns(len(valid_dests) + 1)
+                    with cols[0]:
+                        if st.button("❌ Cancel Selection"):
+                            st.session_state.selected_source = None
+                            st.rerun()
+                            
+                    for i, dst in enumerate(valid_dests):
+                        with cols[i+1]:
+                            lbl = "Bear Off" if dst == 'off' else f"To {dst}"
+                            if st.button(lbl, key=f"move_{src}_{dst}"):
+                                # Execute Partial Step
+                                st.session_state.logs.append(f"You moved {src} -> {dst}")
+                                pts, winner, done = game.step_partial((src, dst))
+                                st.session_state.selected_source = None # Reset selection
+                                st.session_state.done = done
+                                st.rerun()
+                else:
+                    # Show valid Sources
+                    st.markdown("**Select Checker to Move:**")
+                    
+                    # Create columns for buttons (wrap if many)
+                    # Simple list for now
+                    cols = st.columns(min(len(sources), 8))
+                    for i, src in enumerate(sources):
+                        col_idx = i % 8
+                        with cols[col_idx]:
+                            lbl = "Bar" if src == 'bar' else f"Pt {src}"
+                            if st.button(lbl, key=f"src_{src}"):
+                                st.session_state.selected_source = src
+                                st.rerun()
         
     else:
         # CPU Turn
-        st.markdown("### Waiting for CPU...")
+        st.markdown("### CPU is thinking...")
         
-        # Show what phase CPU determines
-        # If CPU needs to ROLL, it happens automatically in previous step transition?
-        # No, `step` returns. 
-        # `game.phase` tells us what CPU is facing.
+        # UX Delay so it's not instant
+        time.sleep(0.8)
         
-        step_needed = True
+        # AI Step
+        current_phase = game.phase
+        depth = st.session_state.get('depth', 1)
         
-        # Difficulty Selector (Only for CPU)
-        difficulty = st.radio("Engine Strength", ["1-Ply (Fast)", "2-Ply (Grandmaster)"], index=0, horizontal=True)
-        depth = 1 if "1-Ply" in difficulty else 2
-        
-        if st.button("▶ Run CPU Move", type="primary"):
-             # AI Step
-             current_phase = game.phase
+        action = 0
              
-             action = 0
-             
-             if st.session_state.agent:
-                 # Use Search Agent
-                 # Pass `game` object directly
-                 # Note: get_action expects 'game'
-                 st.caption(f"Thinking ({difficulty})...")
-                 action = st.session_state.agent.get_action(game, depth=depth)
-                 
-                 # Handling None? get_action returns None if no moves, but game logic shouldn't be here if no moves.
-                 if action is None: action = 0 
-             else:
-                 # Random
-                 moves = game.legal_moves
-                 if moves:
-                     action = np.random.randint(0, len(moves))
-                 else:
-                     action = 0
-             
-             # Log Logic
+        if st.session_state.agent:
+             # Check Phase
              if current_phase == GamePhase.DECIDE_CUBE_OR_ROLL:
-                 if action == 0: 
-                     st.session_state.logs.append("CPU rolled dice.")
-                 else:
-                     st.session_state.logs.append("CPU Doubled!")
-                     
-             elif current_phase == GamePhase.DECIDE_MOVE:
-                 st.session_state.logs.append(f"CPU is playing roll: {game.current_roll}")
-                 if action < len(game.legal_moves):
-                      seq = game.legal_moves[action]
-                      display_txt = " -> ".join([f"{s} to {e}" for s, e in seq])
-                      st.session_state.logs.append(f"CPU Moved: {display_txt}")
-                 else:
-                      st.session_state.logs.append(f"CPU Action Index: {action}")
+                 # Agent has no Cube Logic -> Always Roll
+                 action = 0
+             else:
+                 # st.caption(f"Thinking...") # No need if auto
+                 action = st.session_state.agent.get_action(game, depth=depth)
+                 if action is None: action = 0 
+        else:
+             # Random
+             moves = game.legal_moves
+             if moves:
+                 action = np.random.randint(0, len(moves))
+             else:
+                 action = 0
+         
+        # Log Logic
+        if current_phase == GamePhase.DECIDE_CUBE_OR_ROLL:
+             if action == 0: 
+                 st.session_state.logs.append("CPU rolled dice.")
+             else:
+                 st.session_state.logs.append("CPU Doubled!")
+                 
+        elif current_phase == GamePhase.DECIDE_MOVE:
+             st.session_state.logs.append(f"CPU is playing roll: {game.dice}")
+             if action < len(game.legal_moves):
+                  seq = game.legal_moves[action]
+                  display_txt = " -> ".join([f"{s} to {e}" for s, e in seq])
+                  st.session_state.logs.append(f"CPU Moved: {display_txt}")
+             else:
+                  st.session_state.logs.append(f"CPU Action Index: {action}")
 
-             obs, reward, done_ep, _, _ = env.step(action)
-             st.session_state.done = done_ep
-             st.rerun()
+        obs, reward, done_ep, _, _ = env.step(action)
+        st.session_state.done = done_ep
+        st.rerun()
 
 else:
-    st.balloons()
     st.balloons()
     
     # Calculate points from this game

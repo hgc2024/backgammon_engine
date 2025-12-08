@@ -38,7 +38,10 @@ class BackgammonEnv(gym.Env):
         
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         super().reset(seed=seed)
-        self.game.reset_match()
+        start = 0
+        if options and 'starting_player' in options:
+            start = options['starting_player']
+        self.game.reset_match(starting_player=start)
         # If we want to start from a specific game in match? For now start fresh.
         # Actually, self.game.step() handles phase transitions.
         # Initial phase is DECIDE_CUBE_OR_ROLL.
