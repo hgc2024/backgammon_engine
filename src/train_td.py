@@ -128,7 +128,7 @@ def main():
     optimizer = optim.Adam(net.parameters(), lr=5e-5, weight_decay=1e-5) 
     loss_fn = torch.nn.MSELoss()
     
-    start_episode = 1
+    start_episode = 100_000
     episodes = 500_000 # Continuous training
     best_win_rate = 0.0
     
@@ -155,13 +155,33 @@ def main():
             else:
                 # Legacy: Weights only
                 net.load_state_dict(checkpoint)
-                # Assume a "Legacy" model is partially trained. 
-                # Jump to 100k to lower Epsilon (to ~0.05) and prepare for fine-tuning.
-                start_episode = 100_000
-                print("Loaded Legacy Model. Assuming mature (Stage 100k).")
-                print(f"-> Epsilon will start at ~{(0.1 - (0.09 * (100000/200000))):.3f}")
+                # Assume "Legacy" = "Pretrained Strong Model" (Stage 200k)
+                # This forces Epsilon to start very low (~0.01) and LR to follow scheduler.
+                start_episode = 200_000
+                print("Loaded Pretrained Model. Starting Fine-Tuning Mode (Stage 200k).")
+                print(f"-> Epsilon will be minimal (~1%).")
         except Exception as e:
             print(f"Could not load model: {e}. Starting fresh.")
+    
+    # MANUAL OVERRIDE: Force model to be treated as "Mature" (Stage 200k)
+    # This ensures Epsilon starts at 1% regardless of what the file says.
+    start_episode = 200_000
+    print(f"*** FORCE OVERRIDE: Starting at Episode {start_episode} (Epsilon ~1%) ***")
+    
+    # Ensure "Best So Far" is in the pool immediately (if best model exists)
+    if os.path.exists("td_backgammon_best.pth"):
+        try:
+            # We just load the weights we want the pool to have.
+            # Best way: Just save the current 'net' state as best_so_far if we loaded it.
+            # Actually, we should just copy the file, but we want the 'dict' format.
+            # Let's just save the currently loaded net as the boss.
+            torch.save({
+                'episode': start_episode,
+                'model_state_dict': net.state_dict(),
+            }, "checkpoints/best_so_far.pth")
+            print(">>> Startup: Copied current model to 'checkpoints/best_so_far.pth' for immediate Boss Fights.")
+        except:
+            pass
             
     # Metrics
     recent_losses = deque(maxlen=100)
@@ -173,6 +193,9 @@ def main():
     opponent_net = BackgammonValueNet().to(device)
     opponent_net.eval()
     
+    # Init past_models list
+    past_models = []
+    
     for episode in range(start_episode, episodes + 1):
         # Stability: Epsilon Decay
         decay_progress = min(1.0, episode / 200_000.0)
@@ -183,8 +206,9 @@ def main():
         # 20% Chance: Load a past checkpoint (if available)
         is_self_play = True
         
-        # List available checkpoints
-        past_models = [f for f in os.listdir("checkpoints") if f.endswith(".pth")]
+        # Optimize: Only scan directory every 1000 episodes
+        if episode % 1000 == 0:
+            past_models = [f for f in os.listdir("checkpoints") if f.endswith(".pth")]
         
         if past_models and np.random.rand() < 0.20:
              # Play against history
@@ -355,7 +379,14 @@ def main():
                     'scheduler_state_dict': scheduler.state_dict(),
                     'best_win_rate': best_win_rate
                 }, "td_backgammon_best.pth")
-                print(f"*** New Best Model Saved! ({win_rate*100:.1f}%) ***")
+                
+                # Also save to Opponent Pool as "The Boss"
+                torch.save({
+                    'episode': episode,
+                    'model_state_dict': net.state_dict(),
+                }, "checkpoints/best_so_far.pth")
+                
+                print(f"*** New Best Model Saved! ({win_rate*100:.1f}%) [Added to Pool] ***")
             
         if episode % 500 == 0:
              torch.save({

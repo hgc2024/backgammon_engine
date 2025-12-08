@@ -23,7 +23,7 @@ def init_state():
         st.session_state.done = False
         
         # Load Model (TD-Gammon)
-        model_path = "td_backgammon.pth"
+        model_path = "td_backgammon_best.pth"
         if os.path.exists(model_path):
             st.session_state.agent = ExpectiminimaxAgent(model_path, device="cuda" if torch.cuda.is_available() else "cpu")
             st.toast("TD-Gammon Engine Loaded!", icon="🧠")
@@ -63,8 +63,14 @@ with st.sidebar:
     st.divider()
     
     # Starting Player
-    starter = st.radio("Who Starts?", ["You (White)", "CPU (Red)"], index=0, horizontal=True)
-    start_idx = 0 if "You" in starter else 1
+    starter = st.radio("Who Starts?", ["You (White)", "CPU (Red)", "Random"], index=2, horizontal=True)
+    
+    if "You" in starter:
+        start_idx = 0
+    elif "CPU" in starter:
+        start_idx = 1
+    else:
+        start_idx = np.random.randint(0, 2)
     
     if st.button("Reset / Start Match", key="reset_match_sidebar"):
         env.reset(options={'starting_player': start_idx})
@@ -337,6 +343,15 @@ if not st.session_state.done:
                   seq = game.legal_moves[action]
                   display_txt = " -> ".join([f"{s} to {e}" for s, e in seq])
                   st.session_state.logs.append(f"CPU Moved: {display_txt}")
+                  
+                  # Debug: Show Win Prob
+                  if hasattr(st.session_state.agent, 'last_value'):
+                      val = st.session_state.agent.last_value
+                      # Tanh (-1 to 1) -> Prob (0 to 1 scale roughly) or just value
+                      # Or if trained with Win (+1) / Loss (-1), 
+                      # Win Prob approx (val + 1) / 2
+                      prob = (val + 1) / 2
+                      st.session_state.logs.append(f"CPU Confidence: {prob*100:.1f}% Win")
              else:
                   st.session_state.logs.append(f"CPU Action Index: {action}")
 
@@ -361,6 +376,7 @@ else:
         st.session_state.total_score[0] += pts_0
         st.session_state.total_score[1] += pts_1
         
-        env.reset()
+        # Respect the "Who Starts?" selection from sidebar
+        env.reset(options={'starting_player': start_idx})
         st.session_state.done = False
         st.rerun()

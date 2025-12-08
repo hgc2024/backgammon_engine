@@ -10,7 +10,11 @@ class ExpectiminimaxAgent:
         # Load Model
         from src.model import BackgammonValueNet
         self.net = BackgammonValueNet().to(device)
-        self.net.load_state_dict(torch.load(model_path, map_location=device))
+        checkpoint = torch.load(model_path, map_location=device)
+        if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+            self.net.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            self.net.load_state_dict(checkpoint)
         self.net.eval()
         
         # Precompute all dice probabilities for 2-ply
@@ -28,6 +32,8 @@ class ExpectiminimaxAgent:
         # Normalize
         for k in self.dice_dist:
             self.dice_dist[k] /= 36.0
+            
+        self.last_value = 0.0
 
     def get_action(self, game, roll=None, depth=1):
         """
@@ -72,52 +78,28 @@ class ExpectiminimaxAgent:
         return values
 
     def _run_1ply(self, game, moves):
-        """
-        Greedy strategy: Pick move that leads to best state for ME.
-        State Value V(s) is P(Current Player Wins).
-        After I move to S', it is Opponent's turn.
-        V(S') is P(Opponent Wins).
-        I want to MINIMIZE V(S').
-        """
         boards = []
         for seq in moves:
             boards.append(game.get_afterstate(seq)) # (b, ba, o)
             
-        # We evaluate S' from OPPONENT perspective to see how good it is for them.
         opponent = 1 - game.turn
-        
-        # We evaluate how good the board is for the OPPONENT (who is about to move)
-        # We want to minimize this value.
         values = self._evaluate_states(boards, opponent, opponent)
         
+        # values is P(Opponent Wins) or Opponent Advantage (-1 to 1).
+        # We pick the move that minimizes this.
+        best_val_for_opp = torch.min(values).item()
         best_idx = torch.argmin(values).item()
+        
+        # My Advantage = -1 * Best Opponent Advantage
+        self.last_value = -1.0 * best_val_for_opp
+        
         return best_idx
 
     def _run_2ply(self, game, moves):
-        """
-        Lookahead 2-Ply.
-        For each My Move M:
-           For each Possible Dice Roll D (weighted):
-               Find Opponent Best Response R given D.
-               Value = V(State after R). (Opponent Wins)
-           Score(M) = Weighted Avg(Value).
-        
-        I want to minimize Score(M). (Minimize Expected Opponent Win Prob).
-        """
-        
         best_expectation = -float('inf')
         best_idx = 0
         
-        # Optimization: This is slow. We need a "Virtual Game" to simulate 2nd ply.
-        # We can't easily clone the whole game object cheaply.
-        # But we only need `get_legal_moves` and `get_afterstate`.
-        # `BackgammonGame` is stateful.
-        
-        # Temporary instance for simulation
         sim_game = BackgammonGame()
-        # We need to manually set state. 
-        # BackgammonGame doesn't have `set_state`. Use internals.
-        
         current_board = game.board.copy()
         current_bar = game.bar.copy()
         current_off = game.off.copy()
@@ -125,73 +107,39 @@ class ExpectiminimaxAgent:
         opponent = 1 - current_turn
         
         for i, seq in enumerate(moves):
-            # 1. My Move
             b1, ba1, o1 = game.get_afterstate(seq)
-            
-            # Now we are at State S1. Opponent's turn.
             expected_opp_win = 0.0
             
-            # 2. Iterate Dice
             for roll, prob in self.dice_dist.items():
-                # Setup Sim Game at S1
                 sim_game.board = b1.copy()
                 sim_game.bar = ba1.copy()
                 sim_game.off = o1.copy()
                 sim_game.turn = opponent
-                # sim_game.score/cube ignored for move logic mostly
                 
-                # Get Legal Moves for Opponent
                 opp_moves = sim_game.get_legal_moves(roll)
                 
                 if not opp_moves:
-                    # Opponent Passes.
-                    # State remains S1. Opponent Turn Ends. My Turn.
-                    # Value is V(S1) from MY perspective? 
-                    # Or V(S1) from Opp perspective is Low?
-                    # If I passed, board didn't change.
-                    # Use V(S1) for Opponent.
-                    # Actually if Opponent creates no change, I just evaluate S1.
                     val = self._evaluate_single(b1, ba1, o1, opponent)
                     expected_opp_win += val * prob
                     continue
                 
-                # Find Opponent's Best Response (Greedy 1-ply for them)
-                # They want to Minimize MY Win Prob (Next State S2).
-                # S2 is My Turn. V(S2) = P(Me Win).
-                # Opponent wants to Minimize V(S2).
-                
-                # Generate S2 candidates
                 s2_boards = []
                 for om in opp_moves:
                     s2_boards.append(sim_game.get_afterstate(om))
                     
-                # Evaluate S2 from MY perspective (Player 0 or 1 original)
                 vals_s2 = self._evaluate_states(s2_boards, current_turn, current_turn)
+                best_s2_val_for_me = torch.min(vals_s2).item() # Opponent minimizes MY value?
                 
-                # Opponent chooses move that MINIMIZES my Value.
-                best_s2_val_for_me = torch.min(vals_s2).item()
+                # WAIT. If vals_s2 evaluates "Current Turn" (My Turn), it returns My Advantage.
+                # Opponent wants to MINIMIZE my advantage. Correct.
                 
-                # "Best S2 Val For Me" is my win prob.
-                # Opponent Win Prob = 1 - My Win Prob?
-                # Or if using Tanh (-1 to 1):
-                # Opponent minimizes My Advantage.
-                # If Tanh output is "My Advantage", Opponent minimizes it.
-                # So the State Value resulting is `best_s2_val_for_me`.
-                
-                # Wait: "Score(M) = Weighted Avg(Value)"
-                # If we are minimizing Opponent Win Prob, we are Maximizing My Win Prob.
-                # Let's stick to Maximizing My Value.
-                
-                # Contribution to Expectation
                 expected_opp_win += best_s2_val_for_me * prob
                 
-            # expected_opp_win is actually "Expected Value for ME after Opponent Response"
-            # So we want to MAXIMIZE this.
-            
-            if expected_opp_win > best_expectation: # Initialize with -inf
+            if expected_opp_win > best_expectation:
                 best_expectation = expected_opp_win
                 best_idx = i
                 
+        self.last_value = best_expectation
         return best_idx
 
     def _evaluate_single(self, b, ba, o, p):
