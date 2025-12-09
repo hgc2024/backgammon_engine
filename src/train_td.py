@@ -385,7 +385,9 @@ def main():
          champion_net.load_state_dict(net.state_dict())
 
     # Main Loop
+    # Main Loop
     game = BackgammonGame()
+    past_models = [] # Init pool
     
     # Run Initial Challenge (Parallel Test)
     run_challenge(net, champion_net, start_episode, device, n_games=50)
@@ -415,12 +417,16 @@ def main():
                      opponent_net.load_state_dict(ckpt_data['model_state_dict'])
                  else:
                      opponent_net.load_state_dict(ckpt_data)
-                 # print(f"Vs History: {selected_ckpt}") # Too noisy for every game
+                 print(f"Vs History: {selected_ckpt}") # Logging enabled
              except:
                  # Fallback to self-play if load fails
                  is_self_play = True
         
-        game.reset_match()
+        if np.random.rand() < 0.20:
+             # 20% Curriculum Training: Start in Endgame/Race Scenario
+             game.reset_special_endgame()
+        else:
+             game.reset_match()
         
         trajectory = [] 
         game_over = False

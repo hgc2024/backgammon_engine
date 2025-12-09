@@ -653,18 +653,63 @@ class BackgammonGame:
             if winner == 0:
                 # Winner is White (0-23). Home is 0-5.
                 # Loser is Black. Moving 0->23. Backgammon if Black has pieces in 0-5.
-                if np.any(self.board[0:6] < 0): 
+                if any(x < 0 for x in self.board[0:6]): 
                     checkers_in_winner_home = True
             else:
                 # Winner is Black. Home is 18-23.
                 # Loser is White. Moving 23->0. Backgammon if White has pieces in 18-23.
-                if np.any(self.board[18:24] > 0):
+                if any(x > 0 for x in self.board[18:24]):
                     checkers_in_winner_home = True
                     
             if checkers_on_bar or checkers_in_winner_home:
                 multiplier = 3 # Backgammon
                 
         return self.cube_value * multiplier
+
+    def reset_special_endgame(self):
+        """
+        Resets the game to a procedural "Late Game / Race" state.
+        P0 checkers clustered in 0-8. P1 checkers clustered in 16-23.
+        No contact, pure race. Used for curriculum training.
+        """
+        self.board = [0] * 24
+        self.bar = [0, 0]
+        self.off = [0, 0]
+        self.score = [0, 0] # Start fresh match
+        self.turn = random.randint(0, 1)
+        self.cube_value = 1
+        self.cube_owner = -1
+        self.crawford_active = False
+        self.crawford_played = False
+        
+        # Distribute 15 checkers for P0 (Positive) in indices 0-8
+        # Weighted towards home board (0-5)
+        p0_checkers = 15
+        while p0_checkers > 0:
+            idx = random.randint(0, 8)
+            # Ensure we don't stack absurdly (though it's legal)
+            # Bias slightly towards home (0-5)
+            if idx > 5 and random.random() < 0.5:
+                 idx = random.randint(0, 5)
+            self.board[idx] += 1
+            p0_checkers -= 1
+            
+        # Distribute 15 checkers for P1 (Negative) in indices 16-23
+        p1_checkers = 15
+        while p1_checkers > 0:
+            idx = random.randint(16, 23)
+            # Bias towards home 18-23
+            if idx < 18 and random.random() < 0.5:
+                idx = random.randint(18, 23)
+            self.board[idx] -= 1
+            p1_checkers -= 1
+            
+        self.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+        self.dice = []
+        self.legal_moves = []
+        
+        # No return needed
+        pass
 
     def render_ascii(self) -> str:
         """
