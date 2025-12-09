@@ -335,16 +335,30 @@ def main():
     # Initialize Randomly since we are starting fresh
     champion_net.load_state_dict(net.state_dict())
 
-    # SEED POOL: Add Legacy Gen 1 Champion if available
-    if os.path.exists("best_so_far_gen1.pth"):
+    # SEED POOL: Add Legacy Gen 2 Champion (Sequential Training)
+    if os.path.exists("best_so_far_gen2.pth"):
         try:
-            # Load legacy weights from Gen 1
-            legacy_data = torch.load("best_so_far_gen1.pth", map_location=device)
+            # Load legacy weights from Gen 2
+            legacy_data = torch.load("best_so_far_gen2.pth", map_location=device)
             # Save into checkpoints folder to be picked up by pool logic
-            torch.save(legacy_data, "checkpoints/gen1_champion.pth")
-            print(">>> POOL SEEDED: Added 'best_so_far_gen1.pth' as 'checkpoints/gen1_champion.pth'")
+            torch.save(legacy_data, "checkpoints/gen2_champion.pth")
+            print(">>> POOL SEEDED: Added 'best_so_far_gen2.pth' as 'checkpoints/gen2_champion.pth'")
         except Exception as e:
-            print(f"Failed to seed pool with Gen 1 model: {e}")
+            print(f"Failed to seed pool with Gen 2 model: {e}")
+
+    # Gatekeeper Net (Gen 2 Champion) for Quality Control
+    gatekeeper_net = BackgammonValueNet().to(device)
+    gatekeeper_net.eval()
+    if os.path.exists("checkpoints/gen2_champion.pth"):
+         try:
+             gatekeeper_data = torch.load("checkpoints/gen2_champion.pth", map_location=device)
+             if isinstance(gatekeeper_data, dict) and 'model_state_dict' in gatekeeper_data:
+                 gatekeeper_net.load_state_dict(gatekeeper_data['model_state_dict'])
+             else:
+                 gatekeeper_net.load_state_dict(gatekeeper_data)
+             print(">>> GATEKEEPER ACTIVE: QC Enabled vs Gen 2 Champion")
+         except:
+             print(">>> WARNING: Gatekeeper load failed. QC disabled.")
 
     # Main Loop
     game = BackgammonGame()
@@ -370,14 +384,14 @@ def main():
         
         # --- Opponent Selection ---
         # Default: Self-Play (Opponent is Same as Net)
-        # 20% Chance: Load a past checkpoint (if available)
+        # 25% Chance: Load a past checkpoint (if available) -> Increased from 20%
         is_self_play = True
         
         # Optimize: Only scan directory every 1000 episodes
         if episode % 1000 == 0:
             past_models = [f for f in os.listdir("checkpoints") if f.endswith(".pth")]
         
-        if past_models and np.random.rand() < 0.20:
+        if past_models and np.random.rand() < 0.25:
              # Play against history
              is_self_play = False
              selected_ckpt = random.choice(past_models)
@@ -403,6 +417,7 @@ def main():
         trajectory = [] 
         game_over = False
         step_count = 0
+        final_pts = 0 # Track points for reward
         
         agent_side = 0 if is_self_play else random.randint(0, 1) # If History, pick a side.
         
@@ -463,7 +478,9 @@ def main():
                      obs_curr = get_obs_from_state(game.board, game.bar, game.off, current_player, game.score, game.cube_value, current_player)
                      trajectory.append((obs_curr, current_player))
 
-                game.step(best_idx)
+                pts, winner, done = game.step(best_idx)
+                if done:
+                    final_pts = pts
                 step_count += 1
                 
             elif game.phase == GamePhase.GAME_OVER:
@@ -472,13 +489,21 @@ def main():
         # Update Weights
         winner_idx = 0 if game.score[0] > game.score[1] else 1
         
+        # Calculate Scaled Target (Equity)
+        # Normalize pts by Cube Value to get (1, 2, 3)
+        # Then divide by 3.0 to get (-1 to 1) range
+        base_points = final_pts / max(1, game.cube_value)
+        scaled_reward = base_points / 3.0 
+        
         states = []
         targets = []
         for (obs, player_at_step) in trajectory:
              states.append(obs)
-             # V(s) is Egocentric Value: Prob "I" (perspective player) Win.
-             # If I was the winner, target = 1.0. Else -1.0.
-             tgt = 1.0 if player_at_step == winner_idx else -1.0
+             # V(s) is Egocentric Value
+             # If I winner: +scaled_reward
+             # If I loser: -scaled_reward
+             direction = 1.0 if player_at_step == winner_idx else -1.0
+             tgt = direction * scaled_reward
              targets.append(tgt)
              
         if states:
@@ -494,7 +519,7 @@ def main():
              recent_magnitudes.append(torch.mean(torch.abs(preds)).item())
 
         scheduler.step()
-
+        
         # Logging
         if episode % 50 == 0:
             avg_loss = np.mean(recent_losses) if recent_losses else 0
@@ -502,14 +527,42 @@ def main():
             mode_str = "Self" if is_self_play else "Pool"
             print(f"Ep {episode} [{mode_str}]: Loss={avg_loss:.4f} | Eps={epsilon:.3f} | LR={current_lr:.2e}")
             
-        # Save Pool Checkpoint every 2,500
+        # Save Pool Checkpoint every 2,500 (WITH QC)
         if episode % 2_500 == 0:
-             ckpt_name = f"checkpoints/td_backgammon_ep{episode}.pth"
-             torch.save({
-                    'episode': episode,
-                    'model_state_dict': net.state_dict(),
-                }, ckpt_name)
-             print(f"Saved History Checkpoint: {ckpt_name}")
+             # Quality Control: Must beat Gen 2 > 40%
+             print("Running QC Check vs Gen 2...")
+             # Re-use run_challenge logic logic (Agent=Net, Opponent=Gatekeeper)
+             # returns boolean if > 55%, but we need raw win rate.
+             # Let's perform a manual check here using run_challenge internal logic?
+             # Actually I can just modify run_challenge to return win rate or use duplicated logic?
+             # Duplicating small logic is safer than refactoring everything now.
+             
+             # Prepare Workers
+             agent_state = {k: v.cpu() for k, v in net.state_dict().items()}
+             gate_state = {k: v.cpu() for k, v in gatekeeper_net.state_dict().items()}
+             
+             n_qc_games = 50
+             tasks = []
+             for i in range(n_qc_games):
+                 tasks.append((agent_state, gate_state, episode * 10000 + i))
+                 
+             qc_wins = 0
+             with mp.Pool(processes=max(1, os.cpu_count() - 5)) as pool:
+                  results = list(tqdm(pool.imap_unordered(play_game_worker, tasks), total=n_qc_games, desc="QC Check", leave=False))
+                  qc_wins = sum(results)
+             
+             qc_rate = qc_wins / n_qc_games
+             print(f">>> QC Result: {qc_rate*100:.1f}% vs Gen 2")
+             
+             if qc_rate >= 0.40:
+                  ckpt_name = f"checkpoints/td_backgammon_ep{episode}.pth"
+                  torch.save({
+                         'episode': episode,
+                         'model_state_dict': net.state_dict(),
+                     }, ckpt_name)
+                  print(f"Saved History Checkpoint: {ckpt_name} (Passed QC)")
+             else:
+                  print(f"Skipped Checkpoint: Failed QC ({qc_rate*100:.1f}% < 40%)")
 
         # Evaluation
         if episode % 250 == 0:
