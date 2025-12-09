@@ -96,11 +96,12 @@ def start_game(req: Optional[StartRequest] = None):
     move_history = ["Game Started"]
     
     # Handle custom start
-    if req and req.first_player != -1:
-        # Force turn. reset_match usually randomizes or sets 0?
-        # game.reset_match() -> sets random turn.
-        # We override.
-        game.turn = req.first_player
+    if req:
+        if req.first_player != -1:
+            game.turn = req.first_player
+        else:
+            # Random Start
+            game.turn = random.randint(0, 1)
         
     return get_state_dict()
 
@@ -139,7 +140,7 @@ def play_partial_move(req: PartialMoveRequest):
         return {"error": str(e)}
 
 # Agent Config
-MODEL_PATH = "best_so_far_gen2.pth"
+MODEL_PATH = "chekpoints/best_so_far.pth"
 if os.path.exists(MODEL_PATH):
     agent = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loaded Agent: {MODEL_PATH}")

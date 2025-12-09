@@ -1,59 +1,64 @@
-# Backgammon RL Engine
+# Backgammon RL Engine (Gen 3)
 
-A Reinforcement Learning engine for Backgammon supporting **Doubling Cube**, **Crawford Rule**, and **Match Play (First to 15)**. Uses PPO (Proximal Policy Optimization) with masking for invalid moves.
+A high-performance Reinforcement Learning engine for Backgammon, implementing **TD-Gammon** with modern training enhancements (League Training, Curriculum Learning, and Quality Control).
 
-## Setup
+It features a **Full-Stack Application** with a React Frontend and FastAPI Backend for interactive play.
 
-### Prerequisites
-- Python 3.8+
-- Windows (recommended for this setup script) or Linux
+## 🚀 Key Methodologies (Gen 3)
 
-### Installation
-1.  Run the setup script to create a virtual environment and install dependencies:
-    ```cmd
-    setup_venv.bat
-    ```
-    This will create a `.venv` directory.
+### 1. Model Architecture
+- **ResNet-style 1D CNN**: Processes the board state (encoded as 198 features) relative to the active player.
+- **Output**: Scalar `tanh` value (`-1` to `1`) representing the **Equity** (Expected Win Value). `1.0` = Guaranteed Win, `-1.0` = Guaranteed Loss.
 
-2.  **GPU Support (Optional but Recommended)**:
-    By default, `torch` might install the CPU version. To enable GPU support (for your RTX 4050), install the appropriate CUDA version manually inside the venv:
-    ```cmd
-    .venv\Scripts\activate
-    pip install torch --index-url https://download.pytorch.org/whl/cu118
-    ```
+### 2. Training Loop (`src/train_td.py`)
+- **Outcome-Based Learning**: The model learns to predict the final game result (Monte Carlo evaluation), minimizing the MSE between its prediction `V(s)` and the actual outcome.
+- **Self-Play with Pool**:
+    - **Self-Play**: 75% of games are played against itself.
+    - **Opponent Pool**: 25% of games are played against **Historical Checkpoints** (including the **Gen 2 Champion**) to prevent regression and cyclic learning strategies.
+- **Curriculum Learning (Endgame)**: 
+    - **30%** of games start in a **Late-Game Scenario**:
+        - **Race**: Checkers clustered in range 0-8.
+        - **Bear-Off**: Checkers all in Home Board (0-5), forcing the AI to master the guaranteed win/safe play.
+- **Quality Control (QC)**:
+    - Before saving a checkpoint, the model must achieve **>40% Win Rate** against a static **"Gatekeeper"** (The Gen 2 Champion). This filters out collapsed models.
+- **King of the Hill**:
+    - Every 1,000 episodes, the trainee challenges the reigning **Champion**.
+    - If it achieves **>55% Win Rate** (over 50-100 games), it typically dethrones the champion and becomes the new standard (`checkpoints/best_so_far.pth`).
 
-## Usage
+## 🛠️ Usage
 
-### Training (TD-Gammon)
-To start training the agent using the Temporal Difference (TD) learning algorithm (state-of-the-art for Backgammon):
+### 1. Play the Game
+To launch the full stack (Backgammon UI + Engine API):
+```cmd
+start_app.bat
+```
+This opens:
+- **Backend**: FastAPI server at `http://localhost:8000`
+- **Frontend**: React App at `http://localhost:5173`
+
+**Features**:
+- **Drag & Drop** Interface.
+- **AI Strength Toggle**: 1-Ply (Fast) vs 2-Ply (Strong).
+- **Move Log**: Detailed history with AI Win Confidence (e.g., `Win Est: 58.2%`).
+- **Auto-AI**: CPU plays automatically on its turn.
+
+### 2. Train the Model
+To start the Gen 3 training loop:
 ```cmd
 .venv\Scripts\activate
 python -m src.train_td
 ```
-This script implements:
-- **King of the Hill Evaluation**: Every 1,000 episodes, the trainee challenges the current "Champion" (`checkpoints/best_so_far.pth`). If it wins >55% of 100 games, it dethrones the champion.
-- **Opponent Pool (League Training)**: 20% of games are played against random past checkpoints to prevent forgetting and ensure robustness.
-- **Stability Features**: Epsilon decay, Learning Rate scheduling, and full state checkpointing.
+- **Checkpoints**: Saved to `checkpoints/`.
+- **Best Model**: Continuously updated at `checkpoints/best_so_far.pth`.
 
-Checkpoints are saved in `checkpoints/`. The best model is always copied to `td_backgammon_best.pth`.
+## 📂 Project Structure
 
-### Web UI
-To play against the agent in a graphical interface:
-```cmd
-.venv\Scripts\activate
-streamlit run src/app.py
-```
-- **Engine Strength**: Choose between 1-Ply (Fast) and 2-Ply (Stronger).
-- **Debug Features**: View the engine's win probability confidence in real-time.
+- **`src/train_td.py`**: The core Training Script. Implements the League, Curriculum, and QC logic.
+- **`src/game.py`**: The Backgammon Rules Engine. Fast, NumPy-based implementation supporting Splits, Hits, Bearing Off, and Dice Logic.
+- **`src/api.py`**: FastAPI backend serving the game state and AI predictions.
+- **`src/search.py`**: The Inference Agent (Expectiminimax).
+- **`frontend/`**: React + TypeScript application.
 
-## Project Structure
-- `src/train_td.py`: **Main Training Script** (TD-Lambda, Self-Play + League).
-- `src/game.py`: Core Backgammon logic.
-- `src/model.py`: Neural Network Architecture (Tanh output).
-- `src/search.py`: Expectiminimax Agent for inference/playing.
-- `src/app.py`: Streamlit Web UI.
-
-## Training Metrics
-- **Win Rate vs Random**: Sanity check every 250 episodes.
-- **Win Rate vs Champion**: The true test of progress (every 1,000 episodes).
-- **Loss**: TD-Error (difference between current state value and next state value).
+## 📈 Gen 3 Goals
+- Solve the "Endgame Randomness" issue by forcing high-frequency exposure to Bear-Off states.
+- Stabilize learning using the "Gatekeeper" to ensure every saved version is at least competitive with Gen 2.
