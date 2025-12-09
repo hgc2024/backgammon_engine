@@ -335,16 +335,16 @@ def main():
     # Initialize Randomly since we are starting fresh
     champion_net.load_state_dict(net.state_dict())
 
-    # SEED POOL: Add Legacy Champion if available
-    if os.path.exists("td_backgammon_best_old.pth"):
+    # SEED POOL: Add Legacy Gen 1 Champion if available
+    if os.path.exists("best_so_far_gen1.pth"):
         try:
-            # Load legacy weights
-            legacy_data = torch.load("td_backgammon_best_old.pth", map_location=device)
+            # Load legacy weights from Gen 1
+            legacy_data = torch.load("best_so_far_gen1.pth", map_location=device)
             # Save into checkpoints folder to be picked up by pool logic
-            torch.save(legacy_data, "checkpoints/legacy_champion.pth")
-            print(">>> POOL SEEDED: Added 'td_backgammon_best_old.pth' as 'checkpoints/legacy_champion.pth'")
+            torch.save(legacy_data, "checkpoints/gen1_champion.pth")
+            print(">>> POOL SEEDED: Added 'best_so_far_gen1.pth' as 'checkpoints/gen1_champion.pth'")
         except Exception as e:
-            print(f"Failed to seed pool with legacy model: {e}")
+            print(f"Failed to seed pool with Gen 1 model: {e}")
 
     # Main Loop
     game = BackgammonGame()
