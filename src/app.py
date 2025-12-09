@@ -24,6 +24,7 @@ def init_state():
         
         # Load Model (TD-Gammon)
         # Using the current "Champion" model for testing
+        # model_path = "td_backgammon_best_old.pth"
         model_path = "checkpoints/best_so_far.pth"
         if os.path.exists(model_path):
             st.session_state.agent = ExpectiminimaxAgent(model_path, device="cuda" if torch.cuda.is_available() else "cpu")
@@ -135,6 +136,10 @@ def draw_board_canvas():
         color = "#8b4513" if i % 2 == 1 else "#d2b48c" # Dark Brown / Tan
         svg_elements.append(tri(i, x, True, color))
         
+        # Index Label
+        txt_col = "white" if i % 2 == 1 else "black" # Contrast against bg
+        svg_elements.append(f'<text x="{x + p_w/2}" y="12" font-size="10" text-anchor="middle" fill="{txt_col}" font-weight="bold" font-family="monospace">{i}</text>')
+        
         # Checkers
         count = board[i]
         if count != 0:
@@ -156,6 +161,10 @@ def draw_board_canvas():
         
         color = "#8b4513" if i % 2 == 0 else "#d2b48c"
         svg_elements.append(tri(i, x, False, color))
+        
+        # Index Label
+        txt_col = "white" if i % 2 == 0 else "black"
+        svg_elements.append(f'<text x="{x + p_w/2}" y="{height-4}" font-size="10" text-anchor="middle" fill="{txt_col}" font-weight="bold" font-family="monospace">{i}</text>')
         
         # Checkers
         count = board[i]

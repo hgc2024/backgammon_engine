@@ -2,6 +2,7 @@ import torch
 import torch.optim as optim
 import numpy as np
 import os
+import time
 import random
 from collections import deque
 import multiprocessing as mp
@@ -46,79 +47,87 @@ def get_obs_from_state(board, bar, off, perspective_player, score, cube_val, tur
     
     return np.array(features, dtype=np.float32)
 
-def evaluate_vs_random(agent_net, device, n_games=50):
+def evaluate_vs_random_worker(args):
     """
-    Plays n_games where Agent (using Net) plays P0 and Random plays P1.
-    Returns Win Rate for Agent.
+    Worker: Agent (P0) vs Random (P1)
+    args: (agent_state_dict, seed)
+    Returns: 1 if Agent wins, 0 otherwise.
     """
+    agent_state, seed = args
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    
+    device = torch.device('cpu') 
+    
     game = BackgammonGame()
-    wins = 0
+    agent = BackgammonValueNet().to(device)
+    agent.load_state_dict(agent_state)
+    agent.eval()
     
-    agent_net.eval()
+    game.reset_match()
+    game_over = False
     
-    for _ in tqdm(range(n_games), desc="Eval vs Random", leave=False):
-        game.reset_match()
-        game_over = False
-        
-        while not game_over:
-            if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
-                game.step(0) # Always Roll
-            elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
-                game.step(0) # Always Take
-            elif game.phase == GamePhase.DECIDE_MOVE:
-                moves = game.legal_moves
-                if not moves:
-                    game.turn = 1 - game.turn
-                    game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
-                    continue
-                
-                # Turn logic
-                if game.turn == 0:
-                    # Agent Turn (Smart)
-                    best_val = -float('inf')
+    while not game_over:
+        if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
+            game.step(0)
+        elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
+            game.step(0)
+        elif game.phase == GamePhase.DECIDE_MOVE:
+            moves = game.legal_moves
+            if not moves:
+                game.turn = 1 - game.turn
+                game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+                continue
+            
+            if game.turn == 0:
+                # Agent Turn
+                best_idx = 0
+                boards = []
+                for seq in moves:
+                    b, ba, o = game.get_afterstate(seq)
+                    # Agent (P0) looks at P1's future board
+                    obs = get_obs_from_state(b, ba, o, 1, game.score, game.cube_value, 1)
+                    boards.append(obs)
+                    
+                if not boards:
                     best_idx = 0
-                    
-                    # 1-Ply Lookahead
-                    # We want to MAXIMIZE "My Win Prob".
-                    # get_afterstate returns state after move.
-                    # Standard logic: V(afterstate) = P(Opponent Wins)
-                    # So we want to MINIMIZE V(afterstate).
-                    
-                    # Batch eval
-                    boards = []
-                    for seq in moves:
-                        b, ba, o = game.get_afterstate(seq)
-                        # Obs for Opponent (P1)
-                        obs = get_obs_from_state(b, ba, o, 1, game.score, game.cube_value, 1)
-                        boards.append(obs)
-                        
-                    if not boards:
-                        best_idx = 0
-                    else:
-                        t = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
-                        with torch.no_grad():
-                            vals = agent_net(t).squeeze(1) # Opponent Win Probs
-                        
-                        # Argmin Opponent Win Prob = Argmax My Win Prob
-                        best_idx = torch.argmin(vals).item()
-                        
-                    game.step(best_idx)
                 else:
-                    # Random Turn
-                    idx = random.randint(0, len(moves)-1)
-                    game.step(idx)
-                    
-            if game.phase == GamePhase.GAME_OVER:
-                # game.score has result.
-                # If P0 (Agent) has points > P1?
-                # Usually score is updated.
-                # Check who got points.
-                # game.score is [P0_pts, P1_pts]
-                if game.score[0] > game.score[1]:
-                    wins += 1
-                game_over = True
+                    t = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
+                    with torch.no_grad():
+                        vals = agent(t).squeeze(1)
+                    best_idx = torch.argmin(vals).item()
+                game.step(best_idx)
+            else:
+                # Random Turn (P1)
+                idx = random.randint(0, len(moves)-1)
+                game.step(idx)
                 
-    agent_net.train()
+        if game.phase == GamePhase.GAME_OVER:
+            if game.score[0] > game.score[1]:
+                return 1
+            else:
+                return 0
+    return 0
+
+def evaluate_vs_random(agent_net, device, n_games=50, num_workers=None):
+    if num_workers is None:
+        num_workers = max(1, os.cpu_count() - 5)
+        
+    # Prepare CPU state
+    agent_state = {k: v.cpu() for k, v in agent_net.state_dict().items()}
+    
+    tasks = []
+    # Use random seeds for variance
+    base_seed = int(time.time())
+    for i in range(n_games):
+        tasks.append((agent_state, base_seed + i))
+        
+    wins = 0
+    with mp.Pool(processes=num_workers) as pool:
+        results = list(tqdm(pool.imap_unordered(evaluate_vs_random_worker, tasks), total=n_games, desc="Eval vs Random (CPU)", leave=False))
+        wins = sum(results)
+        
     return wins / n_games
 
 def evaluate_agent_vs_agent(agent_net, opponent_net, device, n_games=50):
@@ -162,7 +171,6 @@ def evaluate_agent_vs_agent(agent_net, opponent_net, device, n_games=50):
                 for seq in moves:
                     b, ba, o = game.get_afterstate(seq)
                     # We evaluate S' from Next Player's perspective
-                    # If Current = P0, Next = P1.
                     obs = get_obs_from_state(b, ba, o, next_perspective, game.score, game.cube_value, 1)
                     boards.append(obs)
                     
@@ -186,7 +194,6 @@ def evaluate_agent_vs_agent(agent_net, opponent_net, device, n_games=50):
                 game_over = True
                 
     agent_net.train()
-    # Opponent net likely stays in eval/train state as passed, but typically eval.
     return wins / n_games
 
 def play_game_worker(args):
@@ -299,18 +306,11 @@ def main():
     print(f"Using device: {device}")
     
     net = BackgammonValueNet().to(device)
-    net = BackgammonValueNet().to(device)
-    # Fine-Tuning: Start with lower LR (2e-5) to avoid breaking existing knowledge (Robustness)
-    optimizer = optim.Adam(net.parameters(), lr=2e-5, weight_decay=1e-5) 
+    # FREST START: Higher LR for initial learning
+    optimizer = optim.Adam(net.parameters(), lr=2e-4, weight_decay=1e-5) 
     loss_fn = torch.nn.MSELoss()
     
-    # ... (skipping unchanged lines implicitly by targeting specific blocks if possible, but replace_file_content needs contiguous)
-    # Actually I need to do multiple edits or one big one.
-    # I will do just the LR change first here.
- 
-    loss_fn = torch.nn.MSELoss()
-    
-    start_episode = 100_000
+    start_episode = 1
     episodes = 500_000 # Continuous training
     best_win_rate = 0.0
     
@@ -321,81 +321,52 @@ def main():
     # Halve LR every 50,000 episodes
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50_000, gamma=0.5)
     
-    # Check for existing
-    if os.path.exists("td_backgammon.pth"):
-        try:
-            checkpoint = torch.load("td_backgammon.pth", map_location=device)
-            # Check if it's a full checkpoint or just weights (Legacy)
-            if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-                net.load_state_dict(checkpoint['model_state_dict'])
-                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-                if 'scheduler_state_dict' in checkpoint:
-                    scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-                start_episode = checkpoint.get('episode', 1) + 1
-                best_win_rate = checkpoint.get('best_win_rate', 0.0)
-                print(f"Loaded Checkpoint: Resuming from Episode {start_episode}")
-            else:
-                # Legacy: Weights only
-                net.load_state_dict(checkpoint)
-                # Assume "Legacy" = "Pretrained Strong Model" (Stage 200k)
-                # This forces Epsilon to start very low (~0.01) and LR to follow scheduler.
-                start_episode = 200_000
-                print("Loaded Pretrained Model. Starting Fine-Tuning Mode (Stage 200k).")
-                print(f"-> Epsilon will be minimal (~1%).")
-        except Exception as e:
-            print(f"Could not load model: {e}. Starting fresh.")
+    # Check for existing (Only if explicitly wanted, otherwise start fresh)
+    # ... (Logic removed for factory reset, or we check for NEW files only)
+    # For now, we assume clean slate.
     
-    # MANUAL OVERRIDE: Force model to be treated as "Mature" (Stage 200k)
-    # This ensures Epsilon starts at 1% regardless of what the file says.
-    start_episode = 200_000
-    print(f"*** FORCE OVERRIDE: Starting at Episode {start_episode} (Epsilon ~1%) ***")
-    
-    # Ensure "Best So Far" is in the pool immediately (if best model exists)
-    if os.path.exists("td_backgammon_best.pth"):
-        try:
-            # We just load the weights we want the pool to have.
-            # Best way: Just save the current 'net' state as best_so_far if we loaded it.
-            # Actually, we should just copy the file, but we want the 'dict' format.
-            # Let's just save the currently loaded net as the boss.
-            torch.save({
-                'episode': start_episode,
-                'model_state_dict': net.state_dict(),
-            }, "checkpoints/best_so_far.pth")
-            print(">>> Startup: Copied current model to 'checkpoints/best_so_far.pth' for immediate Boss Fights.")
-        except:
-            pass
-            
     # Metrics
     recent_losses = deque(maxlen=100)
     recent_magnitudes = deque(maxlen=100) # Track avg |V(s)|
+    
     # Champion Net (The Boss)
     champion_net = BackgammonValueNet().to(device)
     champion_net.eval()
-    if os.path.exists("checkpoints/best_so_far.pth"):
-         try:
-             d = torch.load("checkpoints/best_so_far.pth", map_location=device)
-             if isinstance(d, dict) and 'model_state_dict' in d:
-                 champion_net.load_state_dict(d['model_state_dict'])
-             else:
-                 champion_net.load_state_dict(d)
-             print("Loaded Champion for King of the Hill evaluation.")
-         except:
-             champion_net.load_state_dict(net.state_dict()) # Self is Champ
-    else:
-         champion_net.load_state_dict(net.state_dict())
+    # Initialize Randomly since we are starting fresh
+    champion_net.load_state_dict(net.state_dict())
+
+    # SEED POOL: Add Legacy Champion if available
+    if os.path.exists("td_backgammon_best_old.pth"):
+        try:
+            # Load legacy weights
+            legacy_data = torch.load("td_backgammon_best_old.pth", map_location=device)
+            # Save into checkpoints folder to be picked up by pool logic
+            torch.save(legacy_data, "checkpoints/legacy_champion.pth")
+            print(">>> POOL SEEDED: Added 'td_backgammon_best_old.pth' as 'checkpoints/legacy_champion.pth'")
+        except Exception as e:
+            print(f"Failed to seed pool with legacy model: {e}")
 
     # Main Loop
-    # Main Loop
     game = BackgammonGame()
-    past_models = [] # Init pool
+    # Init pool immediately so we can use Legacy Champion from Ep 1
+    past_models = [f for f in os.listdir("checkpoints") if f.endswith(".pth")]
     
-    # Run Initial Challenge (Parallel Test)
+    # Run Initial Challenge (Parallel Test) - Will be Random vs Random
     run_challenge(net, champion_net, start_episode, device, n_games=50)
     
+    pool_games_count = 0
+    opponent_net = BackgammonValueNet().to(device)
+    opponent_net.eval()
+    
     for episode in range(start_episode, episodes + 1):
-        # Stability: Epsilon Decay
-        decay_progress = min(1.0, episode / 200_000.0)
-        epsilon = max(0.01, 0.1 - (0.09 * decay_progress)) # Explicit min clamp
+        # Stability: Epsilon Decay (1.0 -> 0.1 over 50k episodes)
+        # Decay factor:
+        decay_period = 50_000
+        if episode < decay_period:
+            epsilon = 1.0 - (0.9 * (episode / decay_period))
+        else:
+            epsilon = 0.1 # Floor at 10%
+
         
         # --- Opponent Selection ---
         # Default: Self-Play (Opponent is Same as Net)
@@ -417,7 +388,8 @@ def main():
                      opponent_net.load_state_dict(ckpt_data['model_state_dict'])
                  else:
                      opponent_net.load_state_dict(ckpt_data)
-                 print(f"Vs History: {selected_ckpt}") # Logging enabled
+                 # print(f"Vs History: {selected_ckpt}") # Logging enabled
+                 pool_games_count += 1
              except:
                  # Fallback to self-play if load fails
                  is_self_play = True
@@ -432,61 +404,34 @@ def main():
         game_over = False
         step_count = 0
         
-        # Randomize who is Agent and who is Opponent?
-        # Standard: Agent is P0, Opponent is P1.
-        # But we want Agent to learn both sides.
-        # Simple approach: Agent plays BOTH sides if Self-Play.
-        # If History-Play: Agent plays P0, History plays P1. 
-        # (Or randomize side? Let's keep it simple: Agent=P0, History=P1 for now, or Agent=Turn?)
-        
-        # Let's say: Agent is ALWAYS the one learning.
-        # If Self-Play: Agent makes moves for P0 and P1. We learn from BOTH.
-        # If History-Play: Agent plays P0 (Learns). History plays P1 (No Learn).
-        
-        # Actually, TD-Gammon self-play usually treats the network as "The Player" for whichever turn it is.
-        # So "Self Play" means Net is used for P0 and P1.
-        # "History Play" means Net is P0, OldNet is P1.
-        # We need to randomize so Agent sometimes plays P1 against History P0? 
-        # Yes, otherwise it overfits to P0.
-        
         agent_side = 0 if is_self_play else random.randint(0, 1) # If History, pick a side.
         
         while not game_over:
+            current_player = game.turn
+            
+            # Determine who makes the move
+            is_agent_turn = True
+            active_net = net
+            
+            if not is_self_play:
+                if current_player != agent_side:
+                    is_agent_turn = False
+                    active_net = opponent_net
+            
+            # Phase: Roll / Double
             if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
-                game.step(0)
+                game.step(0) # Roll
+            
             elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
-                game.step(0)
+                game.step(0) # Take
+                
             elif game.phase == GamePhase.DECIDE_MOVE:
                 moves = game.legal_moves
+                
                 if not moves:
-                    game.turn = 1 - game.turn
+                    game.turn = 1 - game.turn # Auto-pass
                     game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
                     continue
-                    
-                current_player = game.turn
-                
-                # Logic: Which brain controls this turn?
-                # If Self-Play: `net` controls both.
-                # If History-Play: 
-                #    If current_player == agent_side: `net` controls (and LEARNS).
-                #    If current_player != agent_side: `opponent_net` controls (NO LEARN).
-                
-                is_agent_turn = is_self_play or (current_player == agent_side)
-                
-                # Select Brain
-                active_net = net if is_agent_turn else opponent_net
-                
-                # 1. Capture State BEFORE Move (S_t)
-                # Only need Obs for training if it's Agent's turn
-                obs = get_obs_from_state(game.board, game.bar, game.off, current_player, game.score, game.cube_value, current_player)
-                
-                # 2. Select Move
-                best_idx = 0
-                
-                # Policy: Epsilon Greedy
-                # Note: Opponent (History) usually plays greedy (epsilon=0) or low noise?
-                # Let's assume Opponent plays best move (Greedy).
-                # Agent uses current epsilon.
                 
                 use_random = False
                 if is_agent_turn:
@@ -510,26 +455,29 @@ def main():
                             # Important: Use the ACTIVE net (Agent or History)
                             vals = active_net(t_cand).squeeze(1)
                         best_idx = torch.argmin(vals).item()
-                
-                # 3. Store Trajectory (ONLY if Agent Turn)
+                    else:
+                        best_idx = 0
+                        
+                # Store Trajectory (ONLY if Agent Turn)
                 if is_agent_turn:
-                    trajectory.append((obs, current_player))
-                
-                # 4. Step
+                     obs_curr = get_obs_from_state(game.board, game.bar, game.off, current_player, game.score, game.cube_value, current_player)
+                     trajectory.append((obs_curr, current_player))
+
                 game.step(best_idx)
                 step_count += 1
                 
             elif game.phase == GamePhase.GAME_OVER:
                 game_over = True
         
-        # Update Weights (Standard Loop) ...
-        # (Unchanged Logic below, just processes trajectory)
+        # Update Weights
         winner_idx = 0 if game.score[0] > game.score[1] else 1
         
         states = []
         targets = []
         for (obs, player_at_step) in trajectory:
              states.append(obs)
+             # V(s) is Egocentric Value: Prob "I" (perspective player) Win.
+             # If I was the winner, target = 1.0. Else -1.0.
              tgt = 1.0 if player_at_step == winner_idx else -1.0
              targets.append(tgt)
              
@@ -540,22 +488,21 @@ def main():
              loss = loss_fn(preds, targets_t)
              optimizer.zero_grad()
              loss.backward()
-             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0) # Stability
+             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
              optimizer.step()
              recent_losses.append(loss.item())
              recent_magnitudes.append(torch.mean(torch.abs(preds)).item())
 
         scheduler.step()
 
-        # Logging ... (same)
+        # Logging
         if episode % 50 == 0:
             avg_loss = np.mean(recent_losses) if recent_losses else 0
-            avg_conf = np.mean(recent_magnitudes) if recent_magnitudes else 0
             current_lr = scheduler.get_last_lr()[0]
             mode_str = "Self" if is_self_play else "Pool"
             print(f"Ep {episode} [{mode_str}]: Loss={avg_loss:.4f} | Eps={epsilon:.3f} | LR={current_lr:.2e}")
             
-        # Save Pool Checkpoint every 2,500 (Frequent Diversity)
+        # Save Pool Checkpoint every 2,500
         if episode % 2_500 == 0:
              ckpt_name = f"checkpoints/td_backgammon_ep{episode}.pth"
              torch.save({
@@ -564,13 +511,14 @@ def main():
                 }, ckpt_name)
              print(f"Saved History Checkpoint: {ckpt_name}")
 
-        # Evaluation ... (Unchanged)
-        if episode % 250 == 0: # More frequent than 1000 for visibility
+        # Evaluation
+        if episode % 250 == 0:
             print("Running Evaluation vs Random...")
-            win_rate = evaluate_vs_random(net, device, n_games=200) # Increased to reduce noise
+            win_rate = evaluate_vs_random(net, device, n_games=200)
             print(f">>> EVALUATION: Win Rate vs Random: {win_rate*100:.1f}%")
+            print(f">>> POOL USAGE: {pool_games_count} games against History in last 250 episodes.")
+            pool_games_count = 0 
             
-            # Best Model Checkpoint
             if win_rate > best_win_rate:
                 best_win_rate = win_rate
                 torch.save({
@@ -581,16 +529,14 @@ def main():
                     'best_win_rate': best_win_rate
                 }, "td_backgammon_best.pth")
                 
-                # Also save to Opponent Pool as "The Boss"
                 torch.save({
                     'episode': episode,
                     'model_state_dict': net.state_dict(),
-                }, "checkpoints/best_so_far.pth")
+                }, "checkpoints/best_vs_random.pth")
                 
                 print(f"*** New Best Model Saved! ({win_rate*100:.1f}%) [Added to Pool] ***")
             
-        # King of the Hill Challenge (Every 1000 episodes)
-        # Reduced frequency and games to avoid training bottlenecks
+        # King of the Hill Challenge
         if episode % 1000 == 0:
             run_challenge(net, champion_net, episode, device, n_games=50)
             
