@@ -25,13 +25,18 @@ def init_state():
         # Load Model (TD-Gammon)
         # Using the current "Champion" model for testing
         # model_path = "td_backgammon_best_old.pth"
-        model_path = "checkpoints_gen1_final/best_so_far.pth"
+        model_path = "checkpoints/best_so_far.pth"
         if os.path.exists(model_path):
-            st.session_state.agent = ExpectiminimaxAgent(model_path, device="cuda" if torch.cuda.is_available() else "cpu")
-            st.toast("TD-Gammon Engine Loaded!", icon="🧠")
+            try:
+                st.session_state.agent = ExpectiminimaxAgent(model_path, device="cuda" if torch.cuda.is_available() else "cpu")
+                st.toast("TD-Gammon Engine Loaded!", icon="🧠")
+            except Exception as e:
+                st.session_state.agent = None
+                st.toast(f"Load Failed: {e}", icon="⚠️")
         else:
             st.session_state.agent = None
-            st.toast("No Model Found. Playing vs Random.", icon="🎲")
+            abs_p = os.path.abspath(model_path)
+            st.toast(f"Model Not Found at: {abs_p}", icon="🎲")
             
     if 'total_score' not in st.session_state:
         st.session_state.total_score = [0, 0]
@@ -55,6 +60,12 @@ with st.sidebar:
     current = game.score
     st.metric("Session Score (You - CPU)", f"{ts[0] + current[0]} - {ts[1] + current[1]}")
     
+    # CPU Status Indicator
+    if st.session_state.agent:
+        st.success("CPU: Neural Network (Active)")
+    else:
+        st.warning("CPU: Random Agent (Fallback)")
+        
     st.metric("Cube Value", f"{game.cube_value}")
     st.metric("Cube Owner", "Cpu" if game.cube_owner == 1 else ("You" if game.cube_owner == 0 else "Centered"))
     
@@ -347,11 +358,14 @@ if not st.session_state.done:
                  if action is None: action = 0 
         else:
              # Random
-             moves = game.legal_moves
-             if moves:
-                 action = np.random.randint(0, len(moves))
+             if current_phase == GamePhase.DECIDE_CUBE_OR_ROLL:
+                 action = 0 # Random should NOT double
              else:
-                 action = 0
+                 moves = game.legal_moves
+                 if moves:
+                     action = np.random.randint(0, len(moves))
+                 else:
+                     action = 0
          
         # Log Logic
         if current_phase == GamePhase.DECIDE_CUBE_OR_ROLL:
