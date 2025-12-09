@@ -8,3 +8,6 @@ pytest
 tensorboard
 streamlit
 tqdm
+fastapi
+uvicorn
+pydantic
