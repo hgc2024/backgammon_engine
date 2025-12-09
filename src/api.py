@@ -164,8 +164,12 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
             move_seq = game.legal_moves[action] # List[Tuple[int, int]]
             move_str = ", ".join([f"{start}->{end}" for start, end in move_seq])
             
+            # Get Win Probability
+            val = getattr(agent, "last_value", 0.0) # Range -1 to 1
+            win_prob = (val + 1.0) / 2.0
+            
             game.step(action)
-            log_move(f"CPU: {move_str}")
+            log_move(f"CPU: {move_str} (Win Est: {win_prob*100:.1f}%)")
             
     return get_state_dict()
 

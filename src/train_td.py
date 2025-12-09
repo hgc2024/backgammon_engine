@@ -408,8 +408,8 @@ def main():
                  # Fallback to self-play if load fails
                  is_self_play = True
         
-        if np.random.rand() < 0.20:
-             # 20% Curriculum Training: Start in Endgame/Race Scenario
+        if np.random.rand() < 0.30:
+             # 30% Curriculum Training: Start in Endgame/Race Scenario (Race or Bear Off)
              game.reset_special_endgame()
         else:
              game.reset_match()

@@ -669,8 +669,7 @@ class BackgammonGame:
     def reset_special_endgame(self):
         """
         Resets the game to a procedural "Late Game / Race" state.
-        P0 checkers clustered in 0-8. P1 checkers clustered in 16-23.
-        No contact, pure race. Used for curriculum training.
+        Now includes explicit "Bear Off" training (all checkers in home board).
         """
         self.board = [0] * 24
         self.bar = [0, 0]
@@ -682,34 +681,44 @@ class BackgammonGame:
         self.crawford_active = False
         self.crawford_played = False
         
-        # Distribute 15 checkers for P0 (Positive) in indices 0-8
-        # Weighted towards home board (0-5)
+        # Scenario Selector:
+        # 0: Pure Race (Contract 0-8)
+        # 1: Bear Off (Contract 0-5)
+        scenario = random.randint(0, 1)
+        
+        range_max = 8 if scenario == 0 else 5
+        range_min_opp = 16 if scenario == 0 else 18
+        
+        # Distribute 15 checkers for P0 (Positive)
         p0_checkers = 15
+        # Optional: In Bear Off, maybe some are already off?
+        if scenario == 1 and random.random() < 0.3:
+            already_off = random.randint(1, 5)
+            self.off[0] += already_off
+            p0_checkers -= already_off
+
         while p0_checkers > 0:
-            idx = random.randint(0, 8)
-            # Ensure we don't stack absurdly (though it's legal)
-            # Bias slightly towards home (0-5)
-            if idx > 5 and random.random() < 0.5:
-                 idx = random.randint(0, 5)
+            idx = random.randint(0, range_max)
             self.board[idx] += 1
             p0_checkers -= 1
             
-        # Distribute 15 checkers for P1 (Negative) in indices 16-23
+        # Distribute 15 checkers for P1 (Negative)
         p1_checkers = 15
+        if scenario == 1 and random.random() < 0.3:
+            already_off = random.randint(1, 5)
+            self.off[1] += already_off
+            p1_checkers -= already_off
+            
         while p1_checkers > 0:
-            idx = random.randint(16, 23)
-            # Bias towards home 18-23
-            if idx < 18 and random.random() < 0.5:
-                idx = random.randint(18, 23)
+            # P1 Home is 18-23 (indices)
+            # If race, 16-23. If bear off, 18-23.
+            idx = random.randint(range_min_opp, 23)
             self.board[idx] -= 1
             p1_checkers -= 1
             
         self.phase = GamePhase.DECIDE_CUBE_OR_ROLL
         self.dice = []
         self.legal_moves = []
-        
-        # No return needed
-        pass
 
     def render_ascii(self) -> str:
         """
