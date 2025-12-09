@@ -25,7 +25,7 @@ def init_state():
         # Load Model (TD-Gammon)
         # Using the current "Champion" model for testing
         # model_path = "td_backgammon_best_old.pth"
-        model_path = "checkpoints/best_so_far.pth"
+        model_path = "checkpoints_gen1_final/best_so_far.pth"
         if os.path.exists(model_path):
             st.session_state.agent = ExpectiminimaxAgent(model_path, device="cuda" if torch.cuda.is_available() else "cpu")
             st.toast("TD-Gammon Engine Loaded!", icon="🧠")
@@ -93,9 +93,9 @@ def draw_board_canvas():
     off = game.off
     
     # SVG Config
-    width=600
+    width=650 # Wider for Off Tray
     height=400
-    p_w = width / 15 # Point width
+    p_w = 600 / 15 # Original scaling
     
     # Helper to draw triangle
     def tri(idx, x, is_top, color):
@@ -122,8 +122,21 @@ def draw_board_canvas():
     
     # Draw Background
     svg_elements.append(f'<rect width="{width}" height="{height}" fill="#f0d9b5"/>') # Lighter wood
-    svg_elements.append(f'<rect x="{width/2-2}" y="0" width="4" height="{height}" fill="#6b4c35"/>') # Bar line
+    svg_elements.append(f'<rect x="{600/2-2}" y="0" width="4" height="{height}" fill="#6b4c35"/>') # Bar line
+    # Off Tray Seperator
+    svg_elements.append(f'<rect x="605" y="0" width="45" height="{height}" fill="#5c4033"/>')
     
+    # Draw Borne Off Counts (Right Side)
+    # CPU (Black/Red) Off - Top Right
+    if off[1] > 0:
+         svg_elements.append(checker(627, 40, "black", off[1]))
+         svg_elements.append(f'<text x="627" y="75" font-size="10" text-anchor="middle" fill="white" font-weight="bold">OFF</text>')
+
+    # Player (White) Off - Bottom Right
+    if off[0] > 0:
+         svg_elements.append(checker(627, height - 40, "white", off[0]))
+         svg_elements.append(f'<text x="627" y="{height - 60}" font-size="10" text-anchor="middle" fill="white" font-weight="bold">OFF</text>')
+
     # Draw Points
     # Top: 12..23 (Left to Right)
     for i in range(12, 24):
