@@ -396,6 +396,8 @@ def main():
         print(f">>> Resuming from {resume_path}...")
         try:
             checkpoint = torch.load(resume_path, map_location=device)
+            print(f"    Checkpoint Keys Found: {list(checkpoint.keys())}")
+            
             net.load_state_dict(checkpoint['model_state_dict'])
             if 'optimizer_state_dict' in checkpoint:
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -403,11 +405,19 @@ def main():
                 scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
             if 'episode' in checkpoint:
                 start_episode = checkpoint['episode'] + 1
+                print(f"    Loaded Episode: {checkpoint['episode']} (Next: {start_episode})")
+            else:
+                print("    WARNING: 'episode' key missing in checkpoint!")
+                
             if 'best_win_rate' in checkpoint:
                 best_win_rate = checkpoint['best_win_rate']
+                
             print(f">>> Resumed at Episode {start_episode}, Best Win Rate: {best_win_rate*100:.1f}%")
         except Exception as e:
             print(f"!!! Failed to resume: {e}")
+    else:
+        print(">>> No resumeable checkpoint found. Starting from scratch (Ep 1).")
+        print(f"    Checked: {resume_candidates}")
             
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50_000, gamma=0.5)
     # If scheduler_state_dict was in checkpoint, load it now that scheduler is initialized
