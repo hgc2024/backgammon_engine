@@ -4,7 +4,7 @@ import { useDrag } from 'react-dnd';
 interface CheckerProps {
     color: number; // 1 for White (Player), -1 for Black (CPU)
     count: number;
-    pointIndex: number; // 0-23, or special ID
+    pointIndex: number | string; // 0-23, or 'bar'
     canDrag: boolean;
 }
 

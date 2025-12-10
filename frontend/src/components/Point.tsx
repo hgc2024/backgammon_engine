@@ -6,17 +6,27 @@ interface PointProps {
     index: number;
     checkers: number; // + for Player, - for CPU
     onDropChecker: (fromIndex: number, toIndex: number) => void;
-    canMoveTo: boolean; // Highlight legal move
+    legalMoves: number[][]; // Full list of [from, to]
 }
 
-export const Point: React.FC<PointProps> = ({ index, checkers, onDropChecker, canMoveTo }) => {
-    const [{ isOver }, drop] = useDrop(() => ({
+export const Point: React.FC<PointProps> = ({ index, checkers, onDropChecker, legalMoves }) => {
+    // Check if this point is a valid destination for ANY move is helpful for static highlighting?
+    // But react-dnd `canDrop` is better.
+    // Also, we can use `monitor.canDrop()` for highlighting "Valid for dragged item".
+
+    const [{ isOver, canDrop }, drop] = useDrop(() => ({
         accept: 'CHECKER',
+        canDrop: (item: { pointIndex: number, color: number }) => {
+            // Must be Player's turn/color (handled by Checker drag source theoretically, but double check)
+            // Validate move exists in legalMoves
+            return legalMoves.some(m => m[0] === item.pointIndex && m[1] === index);
+        },
         drop: (item: { pointIndex: number }) => onDropChecker(item.pointIndex, index),
         collect: (monitor) => ({
             isOver: !!monitor.isOver(),
+            canDrop: !!monitor.canDrop(),
         }),
-    }), [index, onDropChecker]);
+    }), [index, onDropChecker, legalMoves]); // Re-run hook if legalMoves changes
 
     // Visuals
     const isTop = index >= 12;
@@ -26,10 +36,25 @@ export const Point: React.FC<PointProps> = ({ index, checkers, onDropChecker, ca
     const count = Math.abs(checkers);
     const checkerColor = checkers > 0 ? 1 : -1;
 
+    // User Request: If > 5 pieces, show 5 and number on top
+    const MAX_VISUAL = 5;
+    const renderCount = Math.min(count, MAX_VISUAL);
+
     const checkerParams = [];
-    for (let i = 0; i < count; i++) {
-        checkerParams.push(i);
+    for (let i = 0; i < renderCount; i++) {
+        // If this is the LAST visible checker (top of stack) AND there are more...
+        // We pass the TOTAL count to be displayed
+        const isTopStack = (i === renderCount - 1) && (count > MAX_VISUAL);
+        checkerParams.push({
+            countDisplay: isTopStack ? count : 1,
+            isTopStack
+        });
     }
+
+    // Highlight: Yellow if over and valid, LightGreen if dragging and valid target
+    // canDrop means "Some item is being dragged and it CAN be dropped here".
+    // isOver means "The item is currently hovering over this".
+    const highlight = isOver && canDrop ? 'yellow' : (canDrop ? 'rgba(0, 255, 0, 0.2)' : 'transparent');
 
     return (
         <div
@@ -37,7 +62,7 @@ export const Point: React.FC<PointProps> = ({ index, checkers, onDropChecker, ca
             style={{
                 flex: 1,
                 height: '100%',
-                backgroundColor: isOver ? 'yellow' : (canMoveTo ? 'lightgreen' : 'transparent'),
+                backgroundColor: highlight,
                 position: 'relative',
                 display: 'flex',
                 flexDirection: isTop ? 'column' : 'column-reverse',
@@ -56,11 +81,11 @@ export const Point: React.FC<PointProps> = ({ index, checkers, onDropChecker, ca
             }} />
 
             {/* Checkers */}
-            {checkerParams.map((_, i) => (
+            {checkerParams.map((param: any, i) => (
                 <Checker
                     key={i}
                     color={checkerColor}
-                    count={i === count - 1 ? count : 1}
+                    count={param.countDisplay}
                     pointIndex={index}
                     canDrag={checkerColor > 0}
                 />

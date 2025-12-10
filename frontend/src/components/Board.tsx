@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useDrop } from 'react-dnd';
 import { Point } from './Point';
+import { Checker } from './Checker';
 
 // Types
 interface GameState {
@@ -18,13 +20,62 @@ interface GameState {
 
 const API_URL = "http://localhost:8000";
 
+// --- Sub-Component for Bear Off ---
+interface BearOffProps {
+    owner: string;
+    count: number;
+    legalMoves: any[][];
+    onDrop: (fromIndex: number) => void;
+}
+
+const BearOffZone: React.FC<BearOffProps> = ({ owner, count, legalMoves, onDrop }) => {
+    // Only Player (White, 0) bears off to 25/off.
+    // If owner is 'You', we check if 'off' is a legal move from dragging checker's index.
+
+    // Note: CPU doesn't drag, so we only care about Player bearing off.
+    const isPlayer = owner === 'You';
+
+    const [{ isOver, canDrop }, drop] = useDrop(() => ({
+        accept: 'CHECKER',
+        canDrop: (item: { pointIndex: number, color: number }) => {
+            if (!isPlayer) return false;
+            // Check if ANY move allows this checker to go 'off'
+            return legalMoves.some(m => m[0] === item.pointIndex && m[1] === 'off');
+        },
+        drop: (item: { pointIndex: number }) => onDrop(item.pointIndex),
+        collect: (monitor) => ({
+            isOver: !!monitor.isOver(),
+            canDrop: !!monitor.canDrop(),
+        }),
+    }), [legalMoves, onDrop, isPlayer]);
+
+    const highlight = isOver && canDrop ? 'yellow' : (canDrop ? 'rgba(0, 255, 0, 0.2)' : 'transparent');
+
+    return (
+        <div ref={drop as any} style={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: highlight,
+            padding: 5
+        }}>
+            <div>Off<br />{owner}</div>
+            <span style={{ fontSize: '1.5em' }}>{count}</span>
+        </div>
+    );
+};
+
+
 export const Board: React.FC = () => {
     // --- STATE ---
     const [gameState, setGameState] = useState<GameState | null>(null);
-    const [legalMoves, setLegalMoves] = useState<number[][]>([]);
+    const [legalMoves, setLegalMoves] = useState<any[][]>([]); // Can contain 'off'
     const [aiDepth, setAiDepth] = useState<number>(2);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [message, setMessage] = useState<string>("");
+    const [startOption, setStartOption] = useState<number>(-1); // -1: Random, 0: Player, 1: CPU
 
     // --- API HELPERS ---
     const fetchState = async () => {
@@ -72,17 +123,19 @@ export const Board: React.FC = () => {
         await axios.post(`${API_URL}/ai-move`, { depth: aiDepth });
     });
 
-    const handleMove = (fromIdx: number, toIdx: number) => withLoading(async () => {
+    const handleMove = (fromIdx: number, toIdx: number | 'off') => withLoading(async () => {
         await axios.post(`${API_URL}/step`, { move: [fromIdx, toIdx] });
+    });
+
+    const handleUndo = () => withLoading(async () => {
+        await axios.post(`${API_URL}/undo`);
     });
 
     const handlePass = () => withLoading(async () => {
         await axios.post(`${API_URL}/pass`);
     });
 
-    const handleUndo = () => withLoading(async () => {
-        await axios.post(`${API_URL}/undo`);
-    });
+
 
     // --- RENDER ---
     const isLegalDestination = (idx: number) => legalMoves.some(m => m[1] === idx);
@@ -116,13 +169,31 @@ export const Board: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Controls */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <label style={{ fontWeight: 'bold', color: '#333' }}>Difficulty</label>
-                    <select value={aiDepth} onChange={e => setAiDepth(Number(e.target.value))} style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white', color: '#000' }}>
-                        <option value={1}>1-Ply (Fast)</option>
-                        <option value={2}>2-Ply (Grandmaster)</option>
-                    </select>
+                {/* Game Settings */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    {/* Difficulty */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <label style={{ fontWeight: 'bold', color: '#333' }}>Difficulty</label>
+                        <select value={aiDepth} onChange={e => setAiDepth(Number(e.target.value))} style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white', color: '#000' }}>
+                            <option value={1}>1-Ply (Fast)</option>
+                            <option value={2}>2-Ply (Grandmaster)</option>
+                        </select>
+                    </div>
+
+                    {/* Starting Player Selection (Streamlit Style) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <label style={{ fontWeight: 'bold', color: '#333' }}>Who Starts?</label>
+                        <select
+                            value={startOption}
+                            onChange={e => setStartOption(Number(e.target.value))}
+                            style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white', color: '#000' }}
+                        >
+                            <option value={-1}>Random Start</option>
+                            <option value={0}>You (White)</option>
+                            <option value={1}>CPU (Red)</option>
+                        </select>
+                        <div style={{ fontSize: '0.8em', color: '#777', fontStyle: 'italic' }}>Select who makes the first move.</div>
+                    </div>
                 </div>
 
                 {message && <div style={{ backgroundColor: '#ffebee', color: '#c62828', padding: '10px', borderRadius: '4px', fontSize: '0.9em', border: '1px solid #ffcdd2' }}>{message}</div>}
@@ -134,15 +205,11 @@ export const Board: React.FC = () => {
 
                 <hr style={{ width: '100%', border: 'none', borderTop: '1px solid #eee' }} />
 
-                {/* Action Buttons */}
+                {/* Main Action Buttons */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {isGameOver ? (
-                        <>
-                            <button onClick={() => handleStart(0)} className="btn-primary">New API Match (You)</button>
-                            <button onClick={() => handleStart(1)} className="btn-primary">New API Match (CPU)</button>
-                            <button onClick={() => handleStart(-1)} className="btn-primary">New API Match (Random)</button>
-                        </>
-                    ) : (
+
+                    {/* Game Actions */}
+                    {!isGameOver && (
                         <>
                             {canRoll && <button onClick={handleRoll} className="btn-green" disabled={isLoading}>🎲 Roll Dice</button>}
 
@@ -157,6 +224,14 @@ export const Board: React.FC = () => {
                             )}
                         </>
                     )}
+
+                    {isGameOver && (
+                        <div style={{ textAlign: 'center', padding: '10px', backgroundColor: '#dff0d8', color: '#3c763d', borderRadius: '4px', fontWeight: 'bold' }}>
+                            Game Over! {gameState.score[0] > gameState.score[1] ? "You Won!" : "CPU Won!"}
+                        </div>
+                    )}
+
+                    <button onClick={() => handleStart(startOption)} className="btn-primary" disabled={isLoading}>New Game</button>
                 </div>
 
                 <hr style={{ width: '100%', border: 'none', borderTop: '1px solid #eee' }} />
@@ -187,26 +262,75 @@ export const Board: React.FC = () => {
                     {/* Top Row */}
                     <div style={{ display: 'flex', height: '270px', borderBottom: '6px solid #8d6e63' }}>
                         {Array.from({ length: 12 }, (_, i) => 12 + i).map(i => (
-                            <Point key={i} index={i} checkers={gameState.board[i]} onDropChecker={handleMove} canMoveTo={isLegalDestination(i)} />
+                            <Point key={i} index={i} checkers={gameState.board[i]} onDropChecker={handleMove} legalMoves={legalMoves} />
                         ))}
                     </div>
 
                     {/* Bar Area */}
                     <div style={{ height: '60px', backgroundColor: '#6d4c41', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3em', fontWeight: 'bold', textShadow: '1px 1px 2px rgba(0,0,0,0.3)' }}>
-                        BAR <span style={{ fontSize: '0.8em', marginLeft: '15px', fontWeight: 'normal', opacity: 0.9 }}>You: {gameState.bar[0]} | CPU: {gameState.bar[1]}</span>
+                        <div style={{ marginRight: 20 }}>BAR</div>
+
+                        {/* Player Bar Checker */}
+                        {gameState.bar[0] > 0 && (
+                            <div style={{ marginRight: 10 }}>
+                                <Checker color={1} count={gameState.bar[0]} pointIndex="bar" canDrag={gameState.turn === 0} />
+                            </div>
+                        )}
+                        <span style={{ fontSize: '0.8em', opacity: 0.9 }}>You: {gameState.bar[0]}</span>
+
+                        <div style={{ width: 20 }} />
+
+                        <span style={{ fontSize: '0.8em', opacity: 0.9 }}>CPU: {gameState.bar[1]}</span>
+                        {/* CPU Bar Checker (Static visual only since CPU doesn't drag) */}
+                        {gameState.bar[1] > 0 && (
+                            <div style={{ marginLeft: 10 }}>
+                                <Checker color={-1} count={gameState.bar[1]} pointIndex="bar_cpu" canDrag={false} />
+                            </div>
+                        )}
                     </div>
 
                     {/* Bottom Row */}
                     <div style={{ display: 'flex', height: '270px', borderTop: '6px solid #8d6e63' }}>
                         {Array.from({ length: 12 }, (_, i) => 11 - i).map(i => (
-                            <Point key={i} index={i} checkers={gameState.board[i]} onDropChecker={handleMove} canMoveTo={isLegalDestination(i)} />
+                            <Point key={i} index={i} checkers={gameState.board[i]} onDropChecker={handleMove} legalMoves={legalMoves} />
                         ))}
                     </div>
 
                     {/* Bear Off Zone */}
-                    <div style={{ position: 'absolute', right: -90, top: 0, bottom: 0, width: 80, display: 'flex', flexDirection: 'column', padding: 10, background: '#fff8e1', border: '2px solid #8d6e63', fontWeight: 'bold', color: '#4e342e', textAlign: 'center' }}>
-                        <div>Off<br />You<br /><span style={{ fontSize: '1.5em' }}>{gameState.off[0]}</span></div>
-                        <div style={{ marginTop: 'auto' }}>Off<br />CPU<br /><span style={{ fontSize: '1.5em' }}>{gameState.off[1]}</span></div>
+                    <div style={{ position: 'absolute', right: -90, top: 0, bottom: 0, width: 80, display: 'flex', flexDirection: 'column', height: '100%' }}>
+
+                        {/* Player Bear Off (Top or Bottom? Standard is usually same side as home board direction) */}
+                        {/* If White moves 12->24(Bottom Right), off is past 24. */}
+                        {/* Actually, visually, White(0) moves to 24 (bottom right). So Off is Bottom Right. */}
+                        {/* We put Player Off Zone at Bottom? */}
+                        {/* Current layout: Top=12-23? No. */}
+                        {/* Let's check Points: Top Row: 12..23 (Left->Right). Bottom Row: 11..0 (Right->Left)? */}
+                        {/* Logic: Array(12).map((_,i)=>12+i) -> 12,13...23. */}
+                        {/* Bottom: 11-i -> 11,10...0. */}
+                        {/* White(0) starts at 24? (Usually 2 checkers at 24).  */}
+                        {/* If game.board follows standard: 0 is White pos? 23 is Black pos? */}
+                        {/* In my logic: White moves 0->23? or 24->1? */}
+                        {/* Visuals: Bottom Left = 0. Bottom Right = 11. Top Right = 12. Top Left = 23. */}
+                        {/* White moves Positive (0->23). So White bears off at 24 (Top Left?) or 24 (off board). */}
+                        {/* Wait, if 12+i is Top Row... that's 12..23. */}
+                        {/* If 11-i is Bottom Row... that's 11..0. */}
+                        {/* White moves 0->...->23. */}
+                        {/* So White destination is > 23. "Top Left"? */}
+                        {/* If Top Left is 23, then Off is Left of Top Row. */}
+                        {/* But previous BearOff zone was on Right. */}
+                        {/* If visual board is rotated, standard is White Home = Inner Board. */}
+                        {/* Let's just enable Bear Off for both sides in the container and rely on user to find it. */}
+                        {/* I'll stack them: Top (CPU?) Bottom (Player?) or vice versa. */}
+                        {/* Previous static code: Top = You. Bottom = CPU. */}
+
+                        <div style={{ flex: 1, display: 'flex', border: '2px solid #8d6e63', background: '#fff8e1', marginBottom: 5 }}>
+                            <BearOffZone owner="CPU" count={gameState.off[1]} legalMoves={legalMoves} onDrop={(from) => handleMove(from, 'off')} />
+                        </div>
+
+                        <div style={{ flex: 1, display: 'flex', border: '2px solid #8d6e63', background: '#fff8e1' }}>
+                            <BearOffZone owner="You" count={gameState.off[0]} legalMoves={legalMoves} onDrop={(from) => handleMove(from, 'off')} />
+                        </div>
+
                     </div>
 
                 </div>

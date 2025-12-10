@@ -37,7 +37,9 @@ This opens:
 - **Frontend**: React App at `http://localhost:5173`
 
 **Features**:
-- **Drag & Drop** Interface.
+- **Drag & Drop** Interface with Valid Move Highlighting (Green/Yellow).
+- **Bear Off**: Drag checkers to the "Off" zone (Right side) to score when home is full.
+- **Bar Re-entry**: Drag checkers from the "Bar" (Center) to re-enter when hit.
 - **AI Strength Toggle**: 1-Ply (Fast) vs 2-Ply (Strong).
 - **Move Log**: Detailed history with AI Win Confidence (e.g., `Win Est: 58.2%`).
 - **Auto-AI**: CPU plays automatically on its turn.

@@ -6,7 +6,7 @@ from src.train_td import get_obs_from_state # Verify imports
 import sys
 
 def debug_ai():
-    MODEL_PATH = "best_so_far_gen2.pth"
+    MODEL_PATH = "checkpoints/best_so_far.pth"
     print(f"Loading {MODEL_PATH}...")
     try:
         agent = ExpectiminimaxAgent(MODEL_PATH, device="cpu")

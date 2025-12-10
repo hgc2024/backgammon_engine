@@ -32,7 +32,7 @@ class MoveRequest(BaseModel):
     action_idx: int
 
 class PartialMoveRequest(BaseModel):
-    move: Tuple[int, int or str] # Start, End ('off' or int)
+    move: Tuple[int | str, int | str] # Start (int/'bar'), End (int/'off')
 
 class GameState(BaseModel):
     board: List[int]
@@ -116,7 +116,10 @@ def get_gamestate():
 @app.post("/roll")
 def roll_dice():
     if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
-        save_undo_snapshot()
+        # User requested: Undo should NOT undo the roll, only moves.
+        # So we clear the stack here to prevent undoing past this point.
+        global history_stack
+        history_stack = []
         game.step(0) # Roll
         log_move(f"P{game.turn} Rolled {game.dice}")
     return get_state_dict()
