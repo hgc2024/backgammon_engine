@@ -8,6 +8,8 @@ from collections import deque
 import multiprocessing as mp
 import csv
 import sys
+import shutil
+import datetime
 
 # Logging Setup
 class DualLogger:
@@ -28,6 +30,26 @@ def setup_logging():
     if not os.path.exists("logs"):
         os.makedirs("logs")
     sys.stdout = DualLogger("logs/training.log")
+
+def archive_current_state():
+    """Archive current critical checkpoints to avoid overwrite."""
+    if not os.path.exists("checkpoints"):
+        return
+        
+    targets = ["latest.pth", "best_so_far.pth", "best_vs_random.pth"]
+    found = [t for t in targets if os.path.exists(os.path.join("checkpoints", t))]
+    
+    if found:
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        archive_dir = os.path.join("checkpoints", f"archive_{timestamp}")
+        os.makedirs(archive_dir, exist_ok=True)
+        print(f">>> Archiving current checkpoints to {archive_dir}...")
+        
+        for t in found:
+            src_path = os.path.join("checkpoints", t)
+            dst_path = os.path.join(archive_dir, t)
+            shutil.copy2(src_path, dst_path)
+            print(f"    Archived: {t}")
 
 def log_metrics(episode, loss, epsilon, win_rate_random=None, win_rate_champion=None):
     file_exists = os.path.isfile("logs/metrics.csv")
@@ -340,6 +362,7 @@ def run_challenge(net, champion_net, episode, device, n_games=100, num_workers=N
 
 def main():
     setup_logging()
+    archive_current_state()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
