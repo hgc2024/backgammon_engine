@@ -37,12 +37,14 @@ class ResNetBlock(nn.Module):
 
 class BackgammonValueNet(nn.Module):
     """
-    Afterstate Value Network.
+    Gen 4 Multi-Head Network.
     Input: 198 floats (Board State)
-    Output: 1 float (Scalar Value V(s) -> Probability of Winning)
-    Activation: Tanh (-1 to 1) or Sigmoid (0 to 1). 
-    Backgammon usually uses Sigmoid (Win Prob) or Linear (-1 to 1).
-    Let's use Tanh for Reward symmetricity (-1 Loss, +1 Win).
+    
+    Heads:
+    1. Value Output: 6 logits (LossBG, LossG, Loss, Win, WinG, WinBG)
+       - Used with CrossEntropyLoss
+    2. Pip Output: 2 scalars (MyPip, OppPip)
+       - Used with MSELoss (Likely normalized / 100.0)
     """
     def __init__(self):
         super(BackgammonValueNet, self).__init__()
@@ -60,16 +62,23 @@ class BackgammonValueNet(nn.Module):
             nn.Flatten() # (Batch, 128)
         )
         
-        # Global processing
-        # 6 global features
+        # Shared Dense Layer
         # Concatenated size: 128 + 6 = 134
-        self.final_net = nn.Sequential(
+        self.shared_fc = nn.Sequential(
             nn.Linear(128 + 6, 256),
             nn.ReLU(),
             nn.Linear(256, 128),
+            nn.ReLU()
+        )
+        
+        # Head 1: Value (6 Classes)
+        self.value_head = nn.Linear(128, 6)
+        
+        # Head 2: Pip Count (2 Scalars)
+        self.pip_head = nn.Sequential(
+            nn.Linear(128, 64),
             nn.ReLU(),
-            nn.Linear(128, 1),
-            nn.Tanh() # Output -1 to 1
+            nn.Linear(64, 2) # [MyPip, OppPip]
         )
 
     def forward(self, x):
@@ -79,8 +88,6 @@ class BackgammonValueNet(nn.Module):
         global_features = x[:, 192:]
         
         # Reshape board features to (Batch, 8, 24)
-        # See src/features.py for logic
-        # 0..95 is MyBoard, 96..191 is OppBoard
         my_board = board_features[:, :96].view(bs, 24, 4)
         opp_board = board_features[:, 96:].view(bs, 24, 4)
         
@@ -93,4 +100,12 @@ class BackgammonValueNet(nn.Module):
         # Concat Global
         combined = torch.cat([board_out, global_features], dim=1)
         
-        return self.final_net(combined)
+        # Shared Representation
+        latent = self.shared_fc(combined)
+        
+        # Heads
+        value_logits = self.value_head(latent) # (Batch, 6)
+        pip_preds = self.pip_head(latent)      # (Batch, 2)
+        
+        # Return both
+        return value_logits, pip_preds

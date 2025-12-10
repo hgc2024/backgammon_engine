@@ -16,6 +16,8 @@ env/
 backgammon_tensorboard/
 checkpoints/
 checkpoints_old_v2/
+checkpoints_gen3_final/
+checkpoints_gen3_archive/
 *_old.pth
 .pytest_cache/
 *.log

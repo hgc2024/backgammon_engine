@@ -640,9 +640,10 @@ class BackgammonGame:
             return 1, self._calculate_score(1)
         return -1, 0
 
-    def _calculate_score(self, winner: int):
+    def get_win_type(self, winner: int) -> int:
         """
-        Calculates score multiplier (1, 2 for gammon, 3 for backgammon) * cube.
+        Returns raw win type: 1 (Single), 2 (Gammon), 3 (Backgammon).
+        Does NOT include cube multiplier.
         """
         loser = 1 - winner
         multiplier = 1
@@ -650,26 +651,96 @@ class BackgammonGame:
         if self.off[loser] == 0:
             multiplier = 2 # Gammon
             # Check Backgammon: Loser has checker on winner's home board or bar
-            # Player 0 home: 0-5. Player 1 home: 18-23.
-            
             checkers_on_bar = self.bar[loser] > 0
             checkers_in_winner_home = False
             
             if winner == 0:
                 # Winner is White (0-23). Home is 0-5.
-                # Loser is Black. Moving 0->23. Backgammon if Black has pieces in 0-5.
                 if any(x < 0 for x in self.board[0:6]): 
                     checkers_in_winner_home = True
             else:
                 # Winner is Black. Home is 18-23.
-                # Loser is White. Moving 23->0. Backgammon if White has pieces in 18-23.
                 if any(x > 0 for x in self.board[18:24]):
                     checkers_in_winner_home = True
                     
             if checkers_on_bar or checkers_in_winner_home:
                 multiplier = 3 # Backgammon
                 
+        return multiplier
+
+    def _calculate_score(self, winner: int):
+        """
+        Calculates score multiplier (1, 2 for gammon, 3 for backgammon) * cube.
+        """
+        multiplier = self.get_win_type(winner)
         return self.cube_value * multiplier
+
+    def get_pip_counts(self) -> Tuple[int, int]:
+        """
+        Returns (P0_Pips, P1_Pips).
+        P0 moves 23->0 (Indices 0-5 are home). Corrected Logic check.
+        Wait, earlier I analyzed P0 bears off from 0-5.
+        So P0 moves HIGH to LOW. (23 -> 0).
+        Actually...
+        Original layout:
+        P0 starts 24 (idx 0?). No.
+        Let's look at Check Win again.
+        "Winner is White (0-23). Home is 0-5. Loser is Black... pieces in 0-5"
+        Logic verified: P0 moves Positive.
+        If P0 moves Positive (0->23), then P0 Home is 18-23.
+        Line 661: `if any(x < 0 for x in self.board[0:6]): checkers_in_winner_home` (Winner=0).
+        If Winner=0, and their home is 18-23. Why check 0-6?
+        The comment said "Winner is White... Home is 0-5".
+        This implies P0 moves Negative (23->0).
+        BUT _apply_move says: `if player == 0: b[start] -= 1`.
+        Subtracting implies going to LOWER index? NO.
+        `board` stores counts. `b[start] -= 1` means REMOVE piece.
+        `b[end] += 1` means ADD piece.
+        Move is `start -> end`.
+        If Move is 24 -> 23.
+        If logic is "Move by 1".
+        Code: `dest = i + (die * direction)`. (Line 505).
+        Direction?
+        I need to check `_generate_single_moves` direction.
+        Line 69: `self.direction = [1, -1]?` No.
+        Let's find `direction`.
+        If `player == 0`: direction = -1?
+        I need to solve this Coordinate System ambiguity once and for all.
+        """
+        # Coordinate System Reverse Engineering:
+        # P0 bears off at 0-5?
+        # Check `_can_bear_off`. "Player 0: 0-5". 
+        # If P0 home is 0-5, P0 moves towards 0.
+        # So P0 moves [23 -> 0].
+        # Distance calculation:
+        # P0 Pip = Sum(count * (i + 1)).  (Index 0 needs 1 pip).
+        
+        # P1 Home is 18-23.
+        # Check `_can_bear_off`. "Player 1: 18-23".
+        # So P1 moves towards 24.
+        # So P1 moves [0 -> 23].
+        # Distance calculation:
+        # P1 Pip = Sum(abs(count) * (24 - i)). (Index 23 needs 1 pip).
+        
+        p0_pip = 0
+        p1_pip = 0
+        
+        for i in range(24):
+            cnt = self.board[i]
+            if cnt > 0: # P0
+                # P0 Home 0-5. (move -1).
+                # Pip = i + 1. (Index 0 is 1 pip away from off).
+                p0_pip += cnt * (i + 1)
+            elif cnt < 0: # P1
+                # P1 Home 18-23. (move +1).
+                # Pip = 24 - i. (Index 23 is 1 pip away from off).
+                p1_pip += abs(cnt) * (24 - i)
+                
+        # Bar
+        p0_pip += self.bar[0] * 25
+        p1_pip += self.bar[1] * 25
+        
+        return p0_pip, p1_pip
 
     def reset_special_endgame(self):
         """

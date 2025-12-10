@@ -56,25 +56,28 @@ class ExpectiminimaxAgent:
         Returns tensor of values from `perspective_player`'s point of view.
         """
         obs_list = []
-        # Construct observations
-        # Context: "boards" are the raw board states (np arrays)
-        # We need other state info (bar, off) which we assume is passed or attached?
-        # A limitation of `get_afterstate` in game.py is it returns (board, bar, off).
-        # We need to process that tuple.
-        
         for (b, ba, o) in boards:
-             # get_obs_from_state(board, bar, off, perspective_player, score, cube, turn)
-             # Score/Cube we take from current game state (assuming no change in 1 ply)
-             # Turn: The state is "After" move, so it is Opponent's turn?
-             # But the Network evaluates "Current Position".
-             # If we feed it as "Player X to move", the network outputs P(X Wins).
-             
              obs = get_obs_from_state(b, ba, o, perspective_player, [0,0], 1, perspective_player)
              obs_list.append(obs)
              
         batch = torch.tensor(np.array(obs_list), dtype=torch.float32).to(self.device)
         with torch.no_grad():
-            values = self.net(batch).squeeze(1) # [N]
+            logits, _ = self.net(batch) # Ignore Pip Head for value search
+            probs = torch.softmax(logits, dim=1)
+            
+            # Equity Calculation:
+            # Classes: 0:LoseBG(-3), 1:LoseG(-2), 2:Lose(-1), 3:Win(1), 4:WinG(2), 5:WinBG(3)
+            weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=self.device)
+            values = torch.sum(probs * weights, dim=1) # [N]
+            
+            # Normalize to -1..1 range for backward compatibility?
+            # Standard Equity is -3..3.
+            # Minimax works fine with any range as long as consistent.
+            # BUT: The UI displays "Win Est: 58%".
+            # If values > 1, UI might break or look weird.
+            # Ideally UI shows "Equity: +1.5".
+            # For now, let's keep it raw Equity.
+            
         return values
 
     def _run_1ply(self, game, moves):
@@ -147,5 +150,9 @@ class ExpectiminimaxAgent:
         obs = get_obs_from_state(b, ba, o, p, [0,0], 1, p)
         t = torch.tensor(obs[None, :], dtype=torch.float32).to(self.device)
         with torch.no_grad():
-            v = self.net(t).item()
+            logits, _ = self.net(t)
+            probs = torch.softmax(logits, dim=1)
+            weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=self.device)
+            v = torch.sum(probs * weights).item()
+        return v
         return v
