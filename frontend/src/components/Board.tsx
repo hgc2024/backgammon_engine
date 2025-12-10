@@ -182,7 +182,7 @@ export const Board: React.FC = () => {
                 </div>
 
                 {/* Visual Board - Scaled UP */}
-                <div style={{ width: '800px', position: 'relative', backgroundColor: '#f5deb3', border: '15px solid #6d4c41', borderRadius: '15px', minHeight: '600px', boxShadow: '0 15px 35px rgba(0,0,0,0.15)' }}>
+                <div style={{ width: '800px', position: 'relative', backgroundColor: '#f5deb3', border: '15px solid #6d4c41', borderRadius: '15px', minHeight: '600px', boxShadow: '0 15px 35px rgba(0,0,0,0.15)', marginRight: '100px' }}>
 
                     {/* Top Row */}
                     <div style={{ display: 'flex', height: '270px', borderBottom: '6px solid #8d6e63' }}>

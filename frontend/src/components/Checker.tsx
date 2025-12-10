@@ -28,8 +28,8 @@ export const Checker: React.FC<CheckerProps> = ({ color, count, pointIndex, canD
             style={{
                 opacity: isDragging ? 0.5 : 1,
                 cursor: canDrag ? 'grab' : 'default',
-                width: '60px',
-                height: '60px',
+                width: '54px',
+                height: '54px',
                 borderRadius: '50%',
                 backgroundColor: fillColor,
                 border: `3px solid ${strokeColor}`,
@@ -37,11 +37,10 @@ export const Checker: React.FC<CheckerProps> = ({ color, count, pointIndex, canD
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontWeight: 'bold',
-                fontSize: '1.2em',
+                fontSize: '1em',
                 color: textColor,
                 userSelect: 'none',
                 position: 'relative',
-                marginBottom: '-45px', // Stack effect adjusted
                 zIndex: 10
             }}
         >
