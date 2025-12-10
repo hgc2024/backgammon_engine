@@ -71,6 +71,7 @@ def get_state_dict():
         "phase": game.phase.name,
         "winner": -1 if game.phase != GamePhase.GAME_OVER else (0 if game.score[0] > game.score[1] else 1),
         "score": game.score,
+        "pips": [int(x) for x in game.get_pip_counts()], 
         "history": move_history
     }
 
@@ -147,7 +148,7 @@ def play_partial_move(req: PartialMoveRequest):
         return {"error": str(e)}
 
 # Agent Config
-MODEL_PATH = "checkpoints/best_so_far.pth"
+MODEL_PATH = "checkpoints/best_vs_random.pth"
 if os.path.exists(MODEL_PATH):
     agent = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loaded Agent: {MODEL_PATH}")
@@ -178,12 +179,11 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
             move_seq = game.legal_moves[action] # List[Tuple[int, int]]
             move_str = ", ".join([f"{start}->{end}" for start, end in move_seq])
             
-            # Get Win Probability
-            val = getattr(agent, "last_value", 0.0) # Range -1 to 1
-            win_prob = (val + 1.0) / 2.0
+            # Get Equity (Gen 4)
+            val = getattr(agent, "last_value", 0.0)
             
             game.step(action)
-            log_move(f"CPU: {move_str} (Win Est: {win_prob*100:.1f}%)")
+            log_move(f"CPU: {move_str} (Eq: {val:.3f})")
             
     return get_state_dict()
 

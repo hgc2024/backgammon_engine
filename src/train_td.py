@@ -6,6 +6,36 @@ import time
 import random
 from collections import deque
 import multiprocessing as mp
+import csv
+import sys
+
+# Logging Setup
+class DualLogger:
+    def __init__(self, filepath):
+        self.terminal = sys.stdout
+        self.log = open(filepath, "a", encoding='utf-8')
+        
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+        self.log.flush()
+        
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+def setup_logging():
+    if not os.path.exists("logs"):
+        os.makedirs("logs")
+    sys.stdout = DualLogger("logs/training.log")
+
+def log_metrics(episode, loss, epsilon, win_rate_random=None, win_rate_champion=None):
+    file_exists = os.path.isfile("logs/metrics.csv")
+    with open("logs/metrics.csv", "a", newline='') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["Episode", "Loss", "Epsilon", "WinRandom", "WinChampion"])
+        writer.writerow([episode, f"{loss:.4f}", f"{epsilon:.4f}", win_rate_random if win_rate_random else "", win_rate_champion if win_rate_champion else ""])
 from tqdm import tqdm
 from src.game import BackgammonGame, GamePhase
 from src.model import BackgammonValueNet
@@ -309,6 +339,7 @@ def run_challenge(net, champion_net, episode, device, n_games=100, num_workers=N
         return False
 
 def main():
+    setup_logging()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
@@ -326,15 +357,56 @@ def main():
     
     if not os.path.exists("checkpoints"):
         os.makedirs("checkpoints")
+      
     
+    # Check for existing checkpoint to RESUME
+    start_episode = 1
+    # Priority: Latest > Champion > Best Random
+    resume_candidates = ["checkpoints/latest.pth", "checkpoints/best_so_far.pth", "checkpoints/best_vs_random.pth"]
+    resume_path = None
+    for p in resume_candidates:
+        if os.path.exists(p):
+            resume_path = p
+            break
+            
+    if resume_path:
+        print(f">>> Resuming from {resume_path}...")
+        try:
+            checkpoint = torch.load(resume_path, map_location=device)
+            net.load_state_dict(checkpoint['model_state_dict'])
+            if 'optimizer_state_dict' in checkpoint:
+                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            if 'scheduler_state_dict' in checkpoint:
+                scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            if 'episode' in checkpoint:
+                start_episode = checkpoint['episode'] + 1
+            if 'best_win_rate' in checkpoint:
+                best_win_rate = checkpoint['best_win_rate']
+            print(f">>> Resumed at Episode {start_episode}, Best Win Rate: {best_win_rate*100:.1f}%")
+        except Exception as e:
+            print(f"!!! Failed to resume: {e}")
+            
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50_000, gamma=0.5)
+    # If scheduler_state_dict was in checkpoint, load it now that scheduler is initialized
+    if resume_path: 
+        try:
+            checkpoint = torch.load(resume_path, map_location=device)
+            if 'scheduler_state_dict' in checkpoint:
+                scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        except Exception as e:
+            print(f"!!! Failed to load scheduler state during resume: {e}")
     
     recent_losses = deque(maxlen=100)
     
     # Champion Net
     champion_net = BackgammonValueNet().to(device)
     champion_net.eval()
-    champion_net.load_state_dict(net.state_dict())
+    if os.path.exists("checkpoints/best_so_far.pth"):
+        # Load the official Champion if it exists
+        champion_net.load_state_dict(torch.load("checkpoints/best_so_far.pth", map_location=device)['model_state_dict'])
+    else:
+        # Otherwise start with current net
+        champion_net.load_state_dict(net.state_dict())
 
     # Main Loop
     game = BackgammonGame()
@@ -502,6 +574,7 @@ def main():
             avg_loss = np.mean(recent_losses) if recent_losses else 0
             current_lr = scheduler.get_last_lr()[0]
             print(f"Ep {episode}: Loss={avg_loss:.4f} | Eps={epsilon:.3f}")
+            log_metrics(episode, avg_loss, epsilon)
             
         if episode % 2_500 == 0:
              ckpt_name = f"checkpoints/td_gen4_ep{episode}.pth"
@@ -516,8 +589,34 @@ def main():
                     'episode': episode,
                     'model_state_dict': net.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
                     'best_win_rate': best_win_rate
-                }, "checkpoints/best_so_far.pth")
+                }, "checkpoints/latest.pth")
+             print(f"Saved Checkpoint: checkpoints/latest.pth")
+
+        # Evaluation
+        if episode % 250 == 0:
+            print("Running Evaluation vs Random...")
+            win_rate = evaluate_vs_random(net, device, n_games=100)
+            print(f">>> EVALUATION: Win Rate vs Random: {win_rate*100:.1f}%")
+            
+            if win_rate > best_win_rate:
+                best_win_rate = win_rate
+                torch.save({
+                    'episode': episode,
+                    'model_state_dict': net.state_dict(),
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'scheduler_state_dict': scheduler.state_dict(),
+                    'best_win_rate': best_win_rate
+                }, "checkpoints/best_vs_random.pth")
+                print(f"*** New Best Model Saved! ({win_rate*100:.1f}%) ***")
+                
+            log_metrics(episode, np.mean(recent_losses) if recent_losses else 0, epsilon, win_rate_random=f"{win_rate*100:.1f}%")
+            
+        # King of the Hill Challenge
+        if episode % 1000 == 0:
+            success = run_challenge(net, champion_net, episode, device, n_games=50)
+            log_metrics(episode, np.mean(recent_losses) if recent_losses else 0, epsilon, win_rate_champion="Promoted" if success else "Failed")
 
 if __name__ == "__main__":
     main()

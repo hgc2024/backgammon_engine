@@ -15,6 +15,7 @@ interface GameState {
     phase: string;
     score: number[];
     winner: number;
+    pips: number[]; // Gen 4
     history: string[];
 }
 
@@ -157,15 +158,15 @@ export const Board: React.FC = () => {
             <div style={{ width: '380px', backgroundColor: '#ffffff', padding: '25px', borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', gap: '25px', boxShadow: '2px 0 10px rgba(0,0,0,0.05)' }}>
                 <div>
                     <h2 style={{ marginTop: 0, marginBottom: '5px', color: '#1f1f1f' }}>Backgammon AI</h2>
-                    <div style={{ fontSize: '0.95em', color: '#555', fontWeight: '500' }}>Gen 3 Engine (TD-Gammon)</div>
+                    <div style={{ fontSize: '0.95em', color: '#555', fontWeight: '500' }}>Gen 4 Engine (Multi-Head)</div>
                 </div>
 
                 {/* Score Card */}
                 <div style={{ padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
                     <div style={{ fontWeight: 'bold', marginBottom: '10px', color: '#333' }}>Score</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1em' }}>
-                        <span style={{ color: '#2c3e50' }}>You: <b>{gameState.score[0]}</b></span>
-                        <span style={{ color: '#c0392b' }}>CPU: <b>{gameState.score[1]}</b></span>
+                        <span style={{ color: '#2c3e50' }}>You: <b>{gameState.score[0]}</b> <small style={{ color: '#777' }}>({gameState.pips ? gameState.pips[0] : '-'} pips)</small></span>
+                        <span style={{ color: '#c0392b' }}>CPU: <b>{gameState.score[1]}</b> <small style={{ color: '#777' }}>({gameState.pips ? gameState.pips[1] : '-'} pips)</small></span>
                     </div>
                 </div>
 
