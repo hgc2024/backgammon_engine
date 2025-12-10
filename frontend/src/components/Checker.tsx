@@ -24,12 +24,12 @@ export const Checker: React.FC<CheckerProps> = ({ color, count, pointIndex, canD
 
     return (
         <div
-            ref={drag}
+            ref={drag as any}
             style={{
                 opacity: isDragging ? 0.5 : 1,
                 cursor: canDrag ? 'grab' : 'default',
-                width: '54px',
-                height: '54px',
+                width: '46px',
+                height: '46px',
                 borderRadius: '50%',
                 backgroundColor: fillColor,
                 border: `3px solid ${strokeColor}`,
@@ -37,7 +37,7 @@ export const Checker: React.FC<CheckerProps> = ({ color, count, pointIndex, canD
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontWeight: 'bold',
-                fontSize: '1em',
+                fontSize: '0.9em',
                 color: textColor,
                 userSelect: 'none',
                 position: 'relative',

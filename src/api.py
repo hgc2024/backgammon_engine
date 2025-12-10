@@ -72,6 +72,7 @@ def get_state_dict():
         "winner": -1 if game.phase != GamePhase.GAME_OVER else (0 if game.score[0] > game.score[1] else 1),
         "score": game.score,
         "pips": [int(x) for x in game.get_pip_counts()], 
+        "device": str(agent.device) if agent else "N/A",
         "history": move_history
     }
 
@@ -148,7 +149,7 @@ def play_partial_move(req: PartialMoveRequest):
         return {"error": str(e)}
 
 # Agent Config
-MODEL_PATH = "checkpoints/best_vs_random.pth"
+MODEL_PATH = "checkpoints/best_so_far.pth"
 if os.path.exists(MODEL_PATH):
     agent = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loaded Agent: {MODEL_PATH}")

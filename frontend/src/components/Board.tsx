@@ -16,6 +16,7 @@ interface GameState {
     score: number[];
     winner: number;
     pips: number[]; // Gen 4
+    device: string;
     history: string[];
 }
 
@@ -159,6 +160,7 @@ export const Board: React.FC = () => {
                 <div>
                     <h2 style={{ marginTop: 0, marginBottom: '5px', color: '#1f1f1f' }}>Backgammon AI</h2>
                     <div style={{ fontSize: '0.95em', color: '#555', fontWeight: '500' }}>Gen 4 Engine (Multi-Head)</div>
+                    <div style={{ fontSize: '0.8em', color: '#888', marginTop: '2px' }}>Hardware: {gameState.device}</div>
                 </div>
 
                 {/* Score Card */}
@@ -258,10 +260,10 @@ export const Board: React.FC = () => {
                 </div>
 
                 {/* Visual Board - Scaled UP */}
-                <div style={{ width: '800px', position: 'relative', backgroundColor: '#f5deb3', border: '15px solid #6d4c41', borderRadius: '15px', minHeight: '600px', boxShadow: '0 15px 35px rgba(0,0,0,0.15)', marginRight: '100px' }}>
+                <div style={{ width: '800px', position: 'relative', backgroundColor: '#f5deb3', border: '15px solid #6d4c41', borderRadius: '15px', minHeight: '660px', boxShadow: '0 15px 35px rgba(0,0,0,0.15)', marginRight: '100px' }}>
 
                     {/* Top Row */}
-                    <div style={{ display: 'flex', height: '270px', borderBottom: '6px solid #8d6e63' }}>
+                    <div style={{ display: 'flex', height: '300px', borderBottom: '6px solid #8d6e63' }}>
                         {Array.from({ length: 12 }, (_, i) => 12 + i).map(i => (
                             <Point key={i} index={i} checkers={gameState.board[i]} onDropChecker={handleMove} legalMoves={legalMoves} />
                         ))}
@@ -291,7 +293,7 @@ export const Board: React.FC = () => {
                     </div>
 
                     {/* Bottom Row */}
-                    <div style={{ display: 'flex', height: '270px', borderTop: '6px solid #8d6e63' }}>
+                    <div style={{ display: 'flex', height: '300px', borderTop: '6px solid #8d6e63' }}>
                         {Array.from({ length: 12 }, (_, i) => 11 - i).map(i => (
                             <Point key={i} index={i} checkers={gameState.board[i]} onDropChecker={handleMove} legalMoves={legalMoves} />
                         ))}
