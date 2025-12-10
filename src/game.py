@@ -418,8 +418,13 @@ class BackgammonGame:
         # custom sort key: handles 'off' (str) vs int in tuples
         def sort_key(seq):
             # seq is tuple of moves ((start, end), ...)
-            # convert 'off' to special int for sorting
-            return tuple((s, e if isinstance(e, int) else -999) for s, e in seq)
+            # Convert 'bar' to -1, 'off' to 24 (or -999 depending on logic, just consistent int)
+            def clean_val(v):
+                if v == 'bar': return -1
+                if v == 'off': return 25
+                return v
+            
+            return tuple((clean_val(s), clean_val(e)) for s, e in seq)
             
         return sorted(unique_sequences, key=sort_key)
 

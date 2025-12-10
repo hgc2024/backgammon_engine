@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import os
 import copy
+import random
 
 from src.game import BackgammonGame, GamePhase
 from src.search import ExpectiminimaxAgent
@@ -96,13 +97,16 @@ def start_game(req: Optional[StartRequest] = None):
     move_history = ["Game Started"]
     
     # Handle custom start
+    requested = -1
     if req:
+        requested = req.first_player
         if req.first_player != -1:
             game.turn = req.first_player
         else:
             # Random Start
             game.turn = random.randint(0, 1)
-        
+            
+    print(f"Start Game Requested({requested}) -> Actual Turn: {game.turn}")
     return get_state_dict()
 
 @app.get("/gamestate")
@@ -140,7 +144,7 @@ def play_partial_move(req: PartialMoveRequest):
         return {"error": str(e)}
 
 # Agent Config
-MODEL_PATH = "chekpoints/best_so_far.pth"
+MODEL_PATH = "checkpoints/best_so_far.pth"
 if os.path.exists(MODEL_PATH):
     agent = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loaded Agent: {MODEL_PATH}")
@@ -159,6 +163,12 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
         
     # 2. Move
     if game.phase == GamePhase.DECIDE_MOVE:
+        # Check if we are blocked
+        if not game.legal_moves:
+             game.step(0) # Logic ignores index if empty and switches turn
+             log_move(f"CPU: No moves (Pass)")
+             return get_state_dict()             
+    
         action = agent.get_action(game, depth=depth)
         if action is not None:
             # Decode move for logging

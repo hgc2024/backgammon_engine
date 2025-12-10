@@ -18,7 +18,7 @@ export const Checker: React.FC<CheckerProps> = ({ color, count, pointIndex, canD
         }),
     }), [canDrag, pointIndex, color]);
 
-    const fillColor = color > 0 ? "white" : "#d9534f";
+    const fillColor = color > 0 ? "white" : "#d9534f"; // White vs Red
     const strokeColor = color > 0 ? "black" : "#800000";
     const textColor = color > 0 ? "black" : "white";
 
@@ -28,19 +28,20 @@ export const Checker: React.FC<CheckerProps> = ({ color, count, pointIndex, canD
             style={{
                 opacity: isDragging ? 0.5 : 1,
                 cursor: canDrag ? 'grab' : 'default',
-                width: '50px',
-                height: '50px',
+                width: '60px',
+                height: '60px',
                 borderRadius: '50%',
                 backgroundColor: fillColor,
-                border: `2px solid ${strokeColor}`,
+                border: `3px solid ${strokeColor}`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontWeight: 'bold',
+                fontSize: '1.2em',
                 color: textColor,
                 userSelect: 'none',
                 position: 'relative',
-                marginBottom: '-35px', // Stack effect adjusted
+                marginBottom: '-45px', // Stack effect adjusted
                 zIndex: 10
             }}
         >
