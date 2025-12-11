@@ -565,6 +565,9 @@ def main():
                         'best_win_rate_random': best_win_rate_random
                     }, "checkpoints/best_vs_random_gen5.pth")
                     trigger_koth = True # Trigger KOTH ONLY on new record
+                elif win_rate_random >= 0.999:
+                    print(f"*** PERCENTAGE SATURATION! ({win_rate_random*100:.1f}%) -> Triggering KOTH ***")
+                    trigger_koth = True
                     
                 # Periodic KOTH Challenge (Every 2500)
                 if episode % 2500 == 0:
