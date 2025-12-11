@@ -158,13 +158,84 @@ def evaluate_vs_random(net, device, n_games=50):
                         # So I want state where Opponent equity is MIN. Correct.
                         best_idx = torch.argmin(vals).item()
                     
-                    game.step(best_idx)
+                    pts, winner, done = game.step(best_idx)
+                    if done and winner == 0: wins += 1
                 else:
                     # Random
                     idx = random.randint(0, len(moves)-1)
-                    game.step(idx)
+                    pts, winner, done = game.step(idx)
+                    if done and winner == 0: wins += 1
             elif game.phase == GamePhase.GAME_OVER:
-                if game.winner == 0: wins += 1
+                game_over = True
+                
+    return wins / n_games
+
+def evaluate_vs_champion(candidate_net, champion_net, device, n_games=50):
+    candidate_net.eval()
+    champion_net.eval()
+    wins = 0
+    game = BackgammonGame()
+    
+    # Challenge: Candidate (Model A) vs Champion (Model B)
+    # We play n_games. Half as P0, Half as P1 to be fair.
+    
+    for i in range(n_games):
+        game.reset_match()
+        
+        # Swap sides halfway
+        if i < n_games // 2:
+            candidate_player = 0
+        else:
+            candidate_player = 1
+            
+        game_over = False
+        
+        while not game_over:
+            if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
+                game.step(0)
+            elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
+                game.step(0)
+            elif game.phase == GamePhase.DECIDE_MOVE:
+                moves = game.legal_moves
+                if not moves:
+                    game.turn = 1 - game.turn
+                    game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+                    continue
+                
+                # Identify Active Net
+                current_player = game.turn
+                if current_player == candidate_player:
+                    active_net = candidate_net
+                    style_weights = [-3.0, -2.0, -1.0, 1.0, 2.0, 3.0] # Aggressive
+                else:
+                    active_net = champion_net
+                    style_weights = [-3.0, -2.0, -1.0, 1.0, 2.0, 3.0] # Same style
+                
+                # Make Move
+                best_idx = 0
+                boards = []
+                for seq in moves:
+                    b, ba, o = game.get_afterstate(seq)
+                    # Observation from perspective of OPPONENT (who is about to move)
+                    # We want to MINIMIZE their equity.
+                    opp = 1 - current_player
+                    obs = get_obs_from_state(b, ba, o, opp, game.score, game.cube_value, opp)
+                    boards.append(obs)
+                
+                if boards:
+                    t = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
+                    with torch.no_grad():
+                        logits, _ = active_net(t)
+                        probs = torch.softmax(logits, dim=1)
+                        weights = torch.tensor(style_weights, device=device)
+                        vals = torch.sum(probs * weights, dim=1)
+                    best_idx = torch.argmin(vals).item()
+                
+                pts, winner, done = game.step(best_idx)
+                if done:
+                    if winner == candidate_player: wins += 1
+            
+            elif game.phase == GamePhase.GAME_OVER:
                 game_over = True
                 
     return wins / n_games
@@ -213,6 +284,7 @@ def main():
     start_episode = 1
     episodes = 500_000
     best_win_rate = 0.0
+    best_win_rate_random = 0.0 # New Tracking
     
     if not os.path.exists("checkpoints"):
         os.makedirs("checkpoints")
@@ -241,6 +313,8 @@ def main():
                 start_episode = checkpoint['episode'] + 1
             if 'best_win_rate' in checkpoint:
                 best_win_rate = checkpoint['best_win_rate']
+            if 'best_win_rate_random' in checkpoint:
+                best_win_rate_random = checkpoint['best_win_rate_random']
             print(f">>> Resumed at Episode {start_episode}")
         except Exception as e:
             print(f"!!! Failed to resume: {e}")
@@ -391,18 +465,67 @@ def main():
 
             # Evaluation
             if episode % 250 == 0:
-                win_rate = evaluate_vs_random(net, device, n_games=50)
-                print(f">>> EVALUATION: Win Rate vs Random: {win_rate*100:.1f}%")
-                if win_rate > best_win_rate:
-                    best_win_rate = win_rate
+                # 1. Sanity Check vs Random
+                win_rate_random = evaluate_vs_random(net, device, n_games=200)
+                print(f">>> EVALUATION: Win Rate vs Random: {win_rate_random*100:.1f}%")
+                
+                trigger_koth = False
+                
+                # Check for New Personal Best vs Random
+                if win_rate_random > best_win_rate_random:
+                    best_win_rate_random = win_rate_random
+                    print(f"*** NEW RANDOM RECORD! ({best_win_rate_random*100:.1f}%) ***")
+                    # Save "Best vs Random" specifically
                     torch.save({
                         'episode': episode,
                         'model_state_dict': net.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'scheduler_state_dict': scheduler.state_dict(),
-                        'best_win_rate': best_win_rate
-                    }, "checkpoints/best_so_far_gen5.pth")
-                    print(f"*** New Best Gen 5 Model Saved! ({win_rate*100:.1f}%) ***")
+                        'best_win_rate_random': best_win_rate_random
+                    }, "checkpoints/best_vs_random_gen5.pth")
+                    trigger_koth = True # Trigger KOTH ONLY on new record
+                    
+                # 2. King of the Hill Challenge
+                if trigger_koth:
+                    champion_path = "checkpoints/best_so_far_gen5.pth"
+                    is_new_champion = False
+                    
+                    if os.path.exists(champion_path):
+                        # Load Current King
+                        try:
+                            champion_net = BackgammonValueNetGen5().to(device)
+                            champion_net.load_state_dict(torch.load(champion_path, map_location=device)['model_state_dict'])
+                            
+                            # Fight!
+                            print(">>> CHALLENGER APPEARED! Standard vs King...")
+                            win_rate_champ = evaluate_vs_champion(net, champion_net, device, n_games=50)
+                            print(f">>> KOTH RESULT: Challenger Win Rate: {win_rate_champ*100:.1f}%")
+                            
+                            if win_rate_champ > 0.55: # Must beat clearly
+                                print("!!! NEW KING CROWNED !!!")
+                                is_new_champion = True
+                            else:
+                                print("... The King defends the throne.")
+                        except Exception as e:
+                            print(f"!!! Error loading champion for KOTH: {e}")
+                            # Fallback: Treat as first champion
+                            is_new_champion = True
+                    else:
+                        # No King yet? You are the King.
+                        print("!!! FIRST KING CROWNED !!!")
+                        is_new_champion = True
+                        
+                    if is_new_champion:
+                        best_win_rate = win_rate_random # Legacy Verification Metric (or update to Champ Win Rate? Keep random for simplicity of history)
+                        torch.save({
+                            'episode': episode,
+                            'model_state_dict': net.state_dict(),
+                            'optimizer_state_dict': optimizer.state_dict(),
+                            'scheduler_state_dict': scheduler.state_dict(),
+                            'best_win_rate': best_win_rate,
+                            'best_win_rate_random': best_win_rate_random
+                        }, "checkpoints/best_so_far_gen5.pth")
+                
+                log_metrics(episode, avg_loss if 'avg_loss' in locals() else 0, epsilon, win_rate_random=win_rate_random)
+
     
     except KeyboardInterrupt:
         print("\n\n!!! KeyboardInterrupt detected.")
