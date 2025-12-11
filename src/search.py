@@ -35,22 +35,23 @@ class ExpectiminimaxAgent:
             
         self.last_value = 0.0
 
-    def get_action(self, game, roll=None, depth=1):
+    def get_action(self, game, roll=None, depth=1, style="aggressive"):
         """
         Returns the best action index from game.legal_moves.
-        Depth 1 = Greedy (Max 1-ply value).
-        Depth 2 = Expectiminimax (Max Average of Min 2-ply value).
+        Depth 1 = Greedy.
+        Depth 2 = Star-Minimax.
+        Style = 'aggressive' (Money Play) or 'safe' (Risk Averse).
         """
         moves = game.legal_moves
         if not moves:
             return None
             
         if depth == 1:
-            return self._run_1ply(game, moves)
+            return self._run_1ply(game, moves, style)
         elif depth >= 2:
-            return self._run_2ply(game, moves)
+            return self._run_2ply(game, moves, style)
 
-    def _evaluate_states(self, boards, player, perspective_player):
+    def _evaluate_states(self, boards, player, perspective_player, style="aggressive"):
         """
         Evaluates a batch of board states.
         Returns tensor of values from `perspective_player`'s point of view.
@@ -65,40 +66,36 @@ class ExpectiminimaxAgent:
             logits, _ = self.net(batch) # Ignore Pip Head for value search
             probs = torch.softmax(logits, dim=1)
             
-            # Equity Calculation:
-            # Classes: 0:LoseBG(-3), 1:LoseG(-2), 2:Lose(-1), 3:Win(1), 4:WinG(2), 5:WinBG(3)
-            weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=self.device)
+            # Equity Calculation based on Style
+            if style == "safe":
+                 # SAFE: Heavily punish losing, barely reward gammons.
+                 # 0:LoseBG(-4), 1:LoseG(-3), 2:Lose(-2), 3:Win(1), 4:WinG(1.1), 5:WinBG(1.2)
+                 weights = torch.tensor([-4.0, -3.0, -2.0, 1.0, 1.1, 1.2], device=self.device)
+            else:
+                 # AGGRESSIVE (Standard Money Play): Risk it for the biscuit.
+                 # 0:LoseBG(-3), 1:LoseG(-2), 2:Lose(-1), 3:Win(1), 4:WinG(2), 5:WinBG(3)
+                 weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=self.device)
+                 
             values = torch.sum(probs * weights, dim=1) # [N]
-            
-            # Normalize to -1..1 range for backward compatibility?
-            # Standard Equity is -3..3.
-            # Minimax works fine with any range as long as consistent.
-            # BUT: The UI displays "Win Est: 58%".
-            # If values > 1, UI might break or look weird.
-            # Ideally UI shows "Equity: +1.5".
-            # For now, let's keep it raw Equity.
             
         return values
 
-    def _run_1ply(self, game, moves):
+    def _run_1ply(self, game, moves, style="aggressive"):
         boards = []
         for seq in moves:
             boards.append(game.get_afterstate(seq)) # (b, ba, o)
             
         opponent = 1 - game.turn
-        values = self._evaluate_states(boards, opponent, opponent)
+        values = self._evaluate_states(boards, opponent, opponent, style)
         
-        # values is P(Opponent Wins) or Opponent Advantage (-1 to 1).
-        # We pick the move that minimizes this.
+        # values is P(Opponent Wins). We want to MINIMIZE Opponent Advantage.
         best_val_for_opp = torch.min(values).item()
         best_idx = torch.argmin(values).item()
         
-        # My Advantage = -1 * Best Opponent Advantage
         self.last_value = -1.0 * best_val_for_opp
-        
         return best_idx
 
-    def _run_2ply(self, game, moves):
+    def _run_2ply(self, game, moves, style="aggressive"):
         # --- PRUNING STEP (STAR-MINIMAX) ---
         # 1. Run 1-Ply eval on ALL moves to identify candidates.
         boards_1ply = []
@@ -106,10 +103,9 @@ class ExpectiminimaxAgent:
             boards_1ply.append(game.get_afterstate(seq))
             
         opponent_1ply = 1 - game.turn
-        # values_1ply = Opponent's Equity. We want to MINIMIZE this.
-        values_1ply = self._evaluate_states(boards_1ply, opponent_1ply, opponent_1ply)
+        values_1ply = self._evaluate_states(boards_1ply, opponent_1ply, opponent_1ply, style)
         
-        # Zip moves with their 1-ply values and indices
+        # Zip moves with their 1-ply values
         scored_moves = []
         for i, val in enumerate(values_1ply.cpu().numpy()):
             scored_moves.append((val, i, moves[i]))
@@ -123,7 +119,7 @@ class ExpectiminimaxAgent:
         
         # --- FULL 2-PLY SEARCH ON CANDIDATES ---
         best_expectation = -float('inf')
-        best_idx_global = candidates[0][1] # Default to best 1-ply if something goes wrong
+        best_idx_global = candidates[0][1] # Default to best 1-ply
         
         sim_game = BackgammonGame()
         current_turn = game.turn
@@ -143,8 +139,7 @@ class ExpectiminimaxAgent:
                 opp_moves = sim_game.get_legal_moves(roll)
                 
                 if not opp_moves:
-                    # Terminal or Stuck: Static Eval
-                    val = self._evaluate_single(b1, ba1, o1, opponent)
+                    val = self._evaluate_single(b1, ba1, o1, opponent, style)
                     expected_opp_win += val * prob
                     continue
                 
@@ -153,18 +148,14 @@ class ExpectiminimaxAgent:
                 for om in opp_moves:
                     s2_boards.append(sim_game.get_afterstate(om))
                     
-                vals_s2 = self._evaluate_states(s2_boards, current_turn, current_turn)
+                vals_s2 = self._evaluate_states(s2_boards, current_turn, current_turn, style)
                 
-                # Opponent chooses move that MINIMIZES my equity (vals_s2)
-                # vals_s2 = My Equity.
-                # Minimax: Opponent minimizes My Equity.
+                # Opponent chooses move that MINIMIZES my equity
                 best_s2_val_for_me = torch.min(vals_s2).item()
                 
                 expected_opp_win += best_s2_val_for_me * prob
                 
-            # We want to MAXIMIZE the expected equity after opponent moves
-            # Note: expected_opp_win here accumulates 'best_s2_val_for_me' (My Equity).
-            #So we maximize it.
+            # We want to MAXIMIZE the expected equity
             if expected_opp_win > best_expectation:
                 best_expectation = expected_opp_win
                 best_idx_global = original_idx
@@ -172,14 +163,18 @@ class ExpectiminimaxAgent:
         self.last_value = best_expectation
         return best_idx_global
 
-    def _evaluate_single(self, b, ba, o, p):
-        # Helper for single eval
+    def _evaluate_single(self, b, ba, o, p, style="aggressive"):
         obs = get_obs_from_state(b, ba, o, p, [0,0], 1, p)
         t = torch.tensor(obs[None, :], dtype=torch.float32).to(self.device)
         with torch.no_grad():
             logits, _ = self.net(t)
             probs = torch.softmax(logits, dim=1)
-            weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=self.device)
+            
+            if style == "safe":
+                 weights = torch.tensor([-4.0, -3.0, -2.0, 1.0, 1.1, 1.2], device=self.device)
+            else:
+                 weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=self.device)
+                 
             v = torch.sum(probs * weights).item()
         return v
         return v

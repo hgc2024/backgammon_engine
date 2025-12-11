@@ -53,6 +53,7 @@ class StartRequest(BaseModel):
 
 class AIMoveRequest(BaseModel):
     depth: int = 2
+    style: str = "aggressive"
 
 # Track logs
 move_history: List[str] = []
@@ -159,7 +160,8 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
     if not agent:
         return {"error": "No Agent Loaded"}
     
-    depth = req.depth if req else 1 # Default 1 ply (Fast) if not specified, or user pref?
+    depth = req.depth if req else 1 
+    style = req.style if req else "aggressive"
     
     # 1. Roll if needed
     if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
@@ -174,7 +176,7 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
              log_move(f"CPU: No moves (Pass)")
              return get_state_dict()             
     
-        action = agent.get_action(game, depth=depth)
+        action = agent.get_action(game, depth=depth, style=style)
         if action is not None:
             # Decode move for logging
             move_seq = game.legal_moves[action] # List[Tuple[int, int]]
@@ -184,7 +186,7 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
             val = getattr(agent, "last_value", 0.0)
             
             game.step(action)
-            log_move(f"CPU: {move_str} (Eq: {val:.3f})")
+            log_move(f"CPU: {move_str} (Eq: {val:.3f}, {style})")
             
     return get_state_dict()
 
