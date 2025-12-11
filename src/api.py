@@ -150,7 +150,7 @@ def play_partial_move(req: PartialMoveRequest):
         return {"error": str(e)}
 
 # Agent Config
-MODEL_PATH = "checkpoints/best_so_far.pth"
+MODEL_PATH = "best_so_far_gen4.pth"
 if os.path.exists(MODEL_PATH):
     agent = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loaded Agent: {MODEL_PATH}")

@@ -448,208 +448,221 @@ def main():
     opponent_net = BackgammonValueNet().to(device)
     opponent_net.eval()
     
-    for episode in range(start_episode, episodes + 1):
-        decay_period = 50_000
-        if episode < decay_period:
-            epsilon = 1.0 - (0.9 * (episode / decay_period))
-        else:
-            epsilon = 0.1
+    try:
+        for episode in range(start_episode, episodes + 1):
+            decay_period = 50_000
+            if episode < decay_period:
+                epsilon = 1.0 - (0.9 * (episode / decay_period))
+            else:
+                epsilon = 0.1
 
-        is_self_play = True
-        if episode % 1000 == 0:
-            past_models = [f for f in os.listdir("checkpoints") if f.endswith(".pth") and "gen2" not in f]
-        
-        if past_models and np.random.rand() < 0.25:
-             is_self_play = False
-             selected_ckpt = random.choice(past_models)
-             try:
-                 ckpt_path = os.path.join("checkpoints", selected_ckpt)
-                 ckpt_data = torch.load(ckpt_path, map_location=device)
-                 if isinstance(ckpt_data, dict) and 'model_state_dict' in ckpt_data:
-                     opponent_net.load_state_dict(ckpt_data['model_state_dict'])
-                 else:
-                     opponent_net.load_state_dict(ckpt_data)
-             except:
-                 is_self_play = True
-        
-        if np.random.rand() < 0.30:
-             game.reset_special_endgame()
-        else:
-             game.reset_match()
-        
-        trajectory = [] 
-        game_over = False
-        step_count = 0
-        final_win_type = 0
-        final_winner = -1
-        
-        agent_side = 0 if is_self_play else random.randint(0, 1)
-        
-        while not game_over:
-            current_player = game.turn
+            is_self_play = True
+            if episode % 1000 == 0:
+                past_models = [f for f in os.listdir("checkpoints") if f.endswith(".pth") and "gen2" not in f]
             
-            is_agent_turn = True
-            active_net = net
-            
-            if not is_self_play:
-                if current_player != agent_side:
-                    is_agent_turn = False
-                    active_net = opponent_net
-            
-            if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
-                game.step(0)
-            
-            elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
-                game.step(0)
-                
-            elif game.phase == GamePhase.DECIDE_MOVE:
-                moves = game.legal_moves
-                if not moves:
-                    game.turn = 1 - game.turn 
-                    game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
-                    continue
-                
-                use_random = False
-                if is_agent_turn:
-                    if np.random.rand() < epsilon: use_random = True
-                else:
-                    pass
-                
-                if use_random:
-                    best_idx = random.randint(0, len(moves) - 1)
-                else:
-                    boards = []
-                    for seq in moves:
-                        b, ba, o = game.get_afterstate(seq)
-                        opponent = 1 - current_player
-                        nxt_obs = get_obs_from_state(b, ba, o, opponent, game.score, game.cube_value, opponent)
-                        boards.append(nxt_obs)
-                        
-                    if boards:
-                        t_cand = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
-                        with torch.no_grad():
-                            logits, _ = active_net(t_cand)
-                            probs = torch.softmax(logits, dim=1)
-                            weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=device)
-                            vals = torch.sum(probs * weights, dim=1)
-                        best_idx = torch.argmin(vals).item()
-                    else:
-                        best_idx = 0
-                        
-                # Store Trajectory (ONLY if Agent Turn)
-                if is_agent_turn:
-                     obs_curr = get_obs_from_state(game.board, game.bar, game.off, current_player, game.score, game.cube_value, current_player)
-                     
-                     # Get Pip Counts for Auxiliary Task
-                     p0_pip, p1_pip = game.get_pip_counts()
-                     # Normalize (divide by 100 for stability)
-                     # Perspective: My Pip, Opp Pip
-                     if current_player == 0:
-                         pip_target = [p0_pip / 100.0, p1_pip / 100.0]
+            if past_models and np.random.rand() < 0.25:
+                 is_self_play = False
+                 selected_ckpt = random.choice(past_models)
+                 try:
+                     ckpt_path = os.path.join("checkpoints", selected_ckpt)
+                     ckpt_data = torch.load(ckpt_path, map_location=device)
+                     if isinstance(ckpt_data, dict) and 'model_state_dict' in ckpt_data:
+                         opponent_net.load_state_dict(ckpt_data['model_state_dict'])
                      else:
-                         pip_target = [p1_pip / 100.0, p0_pip / 100.0]
+                         opponent_net.load_state_dict(ckpt_data)
+                 except:
+                     is_self_play = True
+            
+            if np.random.rand() < 0.30:
+                 game.reset_special_endgame()
+            else:
+                 game.reset_match()
+            
+            trajectory = [] 
+            game_over = False
+            step_count = 0
+            final_win_type = 0
+            final_winner = -1
+            
+            agent_side = 0 if is_self_play else random.randint(0, 1)
+            
+            while not game_over:
+                current_player = game.turn
+                
+                is_agent_turn = True
+                active_net = net
+                
+                if not is_self_play:
+                    if current_player != agent_side:
+                        is_agent_turn = False
+                        active_net = opponent_net
+                
+                if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
+                    game.step(0)
+                
+                elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
+                    game.step(0)
+                    
+                elif game.phase == GamePhase.DECIDE_MOVE:
+                    moves = game.legal_moves
+                    if not moves:
+                        game.turn = 1 - game.turn 
+                        game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+                        continue
+                    
+                    use_random = False
+                    if is_agent_turn:
+                        if np.random.rand() < epsilon: use_random = True
+                    else:
+                        pass
+                    
+                    if use_random:
+                        best_idx = random.randint(0, len(moves) - 1)
+                    else:
+                        boards = []
+                        for seq in moves:
+                            b, ba, o = game.get_afterstate(seq)
+                            opponent = 1 - current_player
+                            nxt_obs = get_obs_from_state(b, ba, o, opponent, game.score, game.cube_value, opponent)
+                            boards.append(nxt_obs)
+                            
+                        if boards:
+                            t_cand = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
+                            with torch.no_grad():
+                                logits, _ = active_net(t_cand)
+                                probs = torch.softmax(logits, dim=1)
+                                weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=device)
+                                vals = torch.sum(probs * weights, dim=1)
+                            best_idx = torch.argmin(vals).item()
+                        else:
+                            best_idx = 0
+                            
+                    # Store Trajectory (ONLY if Agent Turn)
+                    if is_agent_turn:
+                         obs_curr = get_obs_from_state(game.board, game.bar, game.off, current_player, game.score, game.cube_value, current_player)
                          
-                     trajectory.append((obs_curr, current_player, pip_target))
+                         # Get Pip Counts for Auxiliary Task
+                         p0_pip, p1_pip = game.get_pip_counts()
+                         # Normalize (divide by 100 for stability)
+                         # Perspective: My Pip, Opp Pip
+                         if current_player == 0:
+                             pip_target = [p0_pip / 100.0, p1_pip / 100.0]
+                         else:
+                             pip_target = [p1_pip / 100.0, p0_pip / 100.0]
+                             
+                         trajectory.append((obs_curr, current_player, pip_target))
 
-                pts, winner, done = game.step(best_idx)
-                if done:
-                    final_winner = winner
-                    final_win_type = game.get_win_type(winner) # 1, 2, 3
-                step_count += 1
-                
-            elif game.phase == GamePhase.GAME_OVER:
-                game_over = True
-        
-        # Training Step
-        states = []
-        outcome_targets = []
-        pip_targets = []
-        
-        for (obs, player_at_step, pip_tgt) in trajectory:
-             states.append(obs)
-             pip_targets.append(pip_tgt)
-             
-             # Calculate Target Class (0-5)
-             # Classes: 0:LoseBG, 1:LoseG, 2:Lose, 3:Win, 4:WinG, 5:WinBG
-             
-             if player_at_step == final_winner:
-                 # I Won. Map 1->3, 2->4, 3->5.
-                 tgt_class = 2 + final_win_type
-             else:
-                 # I Lost. Map 1->2, 2->1, 3->0.
-                 tgt_class = 3 - final_win_type
+                    pts, winner, done = game.step(best_idx)
+                    if done:
+                        final_winner = winner
+                        final_win_type = game.get_win_type(winner) # 1, 2, 3
+                    step_count += 1
+                    
+                elif game.phase == GamePhase.GAME_OVER:
+                    game_over = True
+            
+            # Training Step
+            states = []
+            outcome_targets = []
+            pip_targets = []
+            
+            for (obs, player_at_step, pip_tgt) in trajectory:
+                 states.append(obs)
+                 pip_targets.append(pip_tgt)
                  
-             outcome_targets.append(tgt_class)
-             
-        if states:
-             states_t = torch.tensor(np.array(states), dtype=torch.float32).to(device)
-             outcome_t = torch.tensor(np.array(outcome_targets), dtype=torch.long).to(device)
-             pip_t = torch.tensor(np.array(pip_targets), dtype=torch.float32).to(device)
-             
-             # Forward Pass
-             logits, pip_preds = net(states_t)
-             
-             # Combined Loss
-             loss_outcome = ce_loss_fn(logits, outcome_t)
-             loss_pip = mse_loss_fn(pip_preds, pip_t)
-             
-             loss = loss_outcome + 0.1 * loss_pip
-             
-             optimizer.zero_grad()
-             loss.backward()
-             torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
-             optimizer.step()
-             recent_losses.append(loss.item())
+                 # Calculate Target Class (0-5)
+                 # Classes: 0:LoseBG, 1:LoseG, 2:Lose, 3:Win, 4:WinG, 5:WinBG
+                 
+                 if player_at_step == final_winner:
+                     # I Won. Map 1->3, 2->4, 3->5.
+                     tgt_class = 2 + final_win_type
+                 else:
+                     # I Lost. Map 1->2, 2->1, 3->0.
+                     tgt_class = 3 - final_win_type
+                     
+                 outcome_targets.append(tgt_class)
+                 
+            if states:
+                 states_t = torch.tensor(np.array(states), dtype=torch.float32).to(device)
+                 outcome_t = torch.tensor(np.array(outcome_targets), dtype=torch.long).to(device)
+                 pip_t = torch.tensor(np.array(pip_targets), dtype=torch.float32).to(device)
+                 
+                 # Forward Pass
+                 logits, pip_preds = net(states_t)
+                 
+                 # Combined Loss
+                 loss_outcome = ce_loss_fn(logits, outcome_t)
+                 loss_pip = mse_loss_fn(pip_preds, pip_t)
+                 
+                 loss = loss_outcome + 0.1 * loss_pip
+                 
+                 optimizer.zero_grad()
+                 loss.backward()
+                 torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                 optimizer.step()
+                 recent_losses.append(loss.item())
 
-        scheduler.step()
-        
-        if episode % 50 == 0:
-            avg_loss = np.mean(recent_losses) if recent_losses else 0
-            current_lr = scheduler.get_last_lr()[0]
-            print(f"Ep {episode}: Loss={avg_loss:.4f} | Eps={epsilon:.3f}")
-            log_metrics(episode, avg_loss, epsilon)
+            scheduler.step()
             
-        if episode % 2_500 == 0:
-             ckpt_name = f"checkpoints/td_gen4_ep{episode}.pth"
-             torch.save({
-                     'episode': episode,
-                     'model_state_dict': net.state_dict(),
-                 }, ckpt_name)
-             print(f"Saved Checkpoint: {ckpt_name}")
-
-        if episode % 500 == 0:
-             torch.save({
-                    'episode': episode,
-                    'model_state_dict': net.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict(),
-                    'best_win_rate': best_win_rate
-                }, "checkpoints/latest.pth")
-             print(f"Saved Checkpoint: checkpoints/latest.pth")
-
-        # Evaluation
-        if episode % 250 == 0:
-            print("Running Evaluation vs Random...")
-            win_rate = evaluate_vs_random(net, device, n_games=100)
-            print(f">>> EVALUATION: Win Rate vs Random: {win_rate*100:.1f}%")
-            
-            if win_rate > best_win_rate:
-                best_win_rate = win_rate
-                torch.save({
-                    'episode': episode,
-                    'model_state_dict': net.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'scheduler_state_dict': scheduler.state_dict(),
-                    'best_win_rate': best_win_rate
-                }, "checkpoints/best_vs_random.pth")
-                print(f"*** New Best Model Saved! ({win_rate*100:.1f}%) ***")
+            if episode % 50 == 0:
+                avg_loss = np.mean(recent_losses) if recent_losses else 0
+                current_lr = scheduler.get_last_lr()[0]
+                print(f"Ep {episode}: Loss={avg_loss:.4f} | Eps={epsilon:.3f}")
+                log_metrics(episode, avg_loss, epsilon)
                 
-            log_metrics(episode, np.mean(recent_losses) if recent_losses else 0, epsilon, win_rate_random=f"{win_rate*100:.1f}%")
+            if episode % 2_500 == 0:
+                 ckpt_name = f"checkpoints/td_gen4_ep{episode}.pth"
+                 torch.save({
+                         'episode': episode,
+                         'model_state_dict': net.state_dict(),
+                     }, ckpt_name)
+                 print(f"Saved Checkpoint: {ckpt_name}")
+
+            if episode % 500 == 0:
+                 torch.save({
+                        'episode': episode,
+                        'model_state_dict': net.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'scheduler_state_dict': scheduler.state_dict(),
+                        'best_win_rate': best_win_rate
+                    }, "checkpoints/latest.pth")
+                 print(f"Saved Checkpoint: checkpoints/latest.pth")
+
+            # Evaluation
+            if episode % 250 == 0:
+                print("Running Evaluation vs Random...")
+                win_rate = evaluate_vs_random(net, device, n_games=100)
+                print(f">>> EVALUATION: Win Rate vs Random: {win_rate*100:.1f}%")
+                
+                if win_rate > best_win_rate:
+                    best_win_rate = win_rate
+                    torch.save({
+                        'episode': episode,
+                        'model_state_dict': net.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'scheduler_state_dict': scheduler.state_dict(),
+                        'best_win_rate': best_win_rate
+                    }, "checkpoints/best_vs_random.pth")
+                    print(f"*** New Best Model Saved! ({win_rate*100:.1f}%) ***")
+                
+                log_metrics(episode, np.mean(recent_losses) if recent_losses else 0, epsilon, win_rate_random=f"{win_rate*100:.1f}%")
             
-        # King of the Hill Challenge
-        if episode % 1000 == 0:
-            success = run_challenge(net, champion_net, episode, device, n_games=50)
-            log_metrics(episode, np.mean(recent_losses) if recent_losses else 0, epsilon, win_rate_champion="Promoted" if success else "Failed")
+            # King of the Hill Challenge
+            if episode % 1000 == 0:
+                success = run_challenge(net, champion_net, episode, device, n_games=50)
+                log_metrics(episode, np.mean(recent_losses) if recent_losses else 0, epsilon, win_rate_champion="Promoted" if success else "Failed")
+
+    except KeyboardInterrupt:
+        print("\n\n!!! KeyboardInterrupt detected. Saving emergency checkpoint...")
+        torch.save({
+            'episode': episode, # Save the current episode
+            'model_state_dict': net.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'best_win_rate': best_win_rate
+        }, "checkpoints/latest.pth")
+        print(f"!!! Emergency Save Complete: checkpoints/latest.pth (Episode {episode})")
+        print("!!! Exiting gracefully.")
 
 if __name__ == "__main__":
     main()
