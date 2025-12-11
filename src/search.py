@@ -99,20 +99,41 @@ class ExpectiminimaxAgent:
         return best_idx
 
     def _run_2ply(self, game, moves):
+        # --- PRUNING STEP (STAR-MINIMAX) ---
+        # 1. Run 1-Ply eval on ALL moves to identify candidates.
+        boards_1ply = []
+        for seq in moves:
+            boards_1ply.append(game.get_afterstate(seq))
+            
+        opponent_1ply = 1 - game.turn
+        # values_1ply = Opponent's Equity. We want to MINIMIZE this.
+        values_1ply = self._evaluate_states(boards_1ply, opponent_1ply, opponent_1ply)
+        
+        # Zip moves with their 1-ply values and indices
+        scored_moves = []
+        for i, val in enumerate(values_1ply.cpu().numpy()):
+            scored_moves.append((val, i, moves[i]))
+            
+        # Sort by Value (Ascending) -> Minimize Opponent Equity
+        scored_moves.sort(key=lambda x: x[0])
+        
+        # Select Top K Candidates
+        TOP_K = 5
+        candidates = scored_moves[:TOP_K]
+        
+        # --- FULL 2-PLY SEARCH ON CANDIDATES ---
         best_expectation = -float('inf')
-        best_idx = 0
+        best_idx_global = candidates[0][1] # Default to best 1-ply if something goes wrong
         
         sim_game = BackgammonGame()
-        current_board = game.board.copy()
-        current_bar = game.bar.copy()
-        current_off = game.off.copy()
         current_turn = game.turn
         opponent = 1 - current_turn
         
-        for i, seq in enumerate(moves):
+        for (val_1ply, original_idx, seq) in candidates:
             b1, ba1, o1 = game.get_afterstate(seq)
             expected_opp_win = 0.0
             
+            # Simulate Opponent Rolls
             for roll, prob in self.dice_dist.items():
                 sim_game.board = b1.copy()
                 sim_game.bar = ba1.copy()
@@ -122,28 +143,34 @@ class ExpectiminimaxAgent:
                 opp_moves = sim_game.get_legal_moves(roll)
                 
                 if not opp_moves:
+                    # Terminal or Stuck: Static Eval
                     val = self._evaluate_single(b1, ba1, o1, opponent)
                     expected_opp_win += val * prob
                     continue
                 
+                # Opponent Best Response (1-Ply for them)
                 s2_boards = []
                 for om in opp_moves:
                     s2_boards.append(sim_game.get_afterstate(om))
                     
                 vals_s2 = self._evaluate_states(s2_boards, current_turn, current_turn)
-                best_s2_val_for_me = torch.min(vals_s2).item() # Opponent minimizes MY value?
                 
-                # WAIT. If vals_s2 evaluates "Current Turn" (My Turn), it returns My Advantage.
-                # Opponent wants to MINIMIZE my advantage. Correct.
+                # Opponent chooses move that MINIMIZES my equity (vals_s2)
+                # vals_s2 = My Equity.
+                # Minimax: Opponent minimizes My Equity.
+                best_s2_val_for_me = torch.min(vals_s2).item()
                 
                 expected_opp_win += best_s2_val_for_me * prob
                 
+            # We want to MAXIMIZE the expected equity after opponent moves
+            # Note: expected_opp_win here accumulates 'best_s2_val_for_me' (My Equity).
+            #So we maximize it.
             if expected_opp_win > best_expectation:
                 best_expectation = expected_opp_win
-                best_idx = i
+                best_idx_global = original_idx
                 
         self.last_value = best_expectation
-        return best_idx
+        return best_idx_global
 
     def _evaluate_single(self, b, ba, o, p):
         # Helper for single eval
