@@ -75,7 +75,7 @@ export const Board: React.FC = () => {
     const [gameState, setGameState] = useState<GameState | null>(null);
     const [legalMoves, setLegalMoves] = useState<any[][]>([]); // Can contain 'off'
     const [aiDepth, setAiDepth] = useState<number>(2);
-    const [aiStyle, setAiStyle] = useState<string>("aggressive");
+    // const [aiStyle, setAiStyle] = useState<string>("aggressive"); // Removed
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [message, setMessage] = useState<string>("");
     const [startOption, setStartOption] = useState<number>(-1); // -1: Random, 0: Player, 1: CPU
@@ -123,7 +123,7 @@ export const Board: React.FC = () => {
     });
 
     const handleAIMove = () => withLoading(async () => {
-        await axios.post(`${API_URL}/ai-move`, { depth: aiDepth, style: aiStyle });
+        await axios.post(`${API_URL}/ai-move`, { depth: aiDepth }); // style removed
     });
 
     const handleMove = (fromIdx: number, toIdx: number | 'off') => withLoading(async () => {
@@ -160,7 +160,7 @@ export const Board: React.FC = () => {
             <div style={{ width: '380px', backgroundColor: '#ffffff', padding: '25px', borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', gap: '25px', boxShadow: '2px 0 10px rgba(0,0,0,0.05)' }}>
                 <div>
                     <h2 style={{ marginTop: 0, marginBottom: '5px', color: '#1f1f1f' }}>Backgammon AI</h2>
-                    <div style={{ fontSize: '0.95em', color: '#555', fontWeight: '500' }}>Gen 4 Engine (Multi-Head)</div>
+                    <div style={{ fontSize: '0.95em', color: '#555', fontWeight: '500' }}>Gen 5 Engine (Transformer)</div>
                     <div style={{ fontSize: '0.8em', color: '#888', marginTop: '2px' }}>Hardware: {gameState.device}</div>
                 </div>
 
@@ -176,23 +176,13 @@ export const Board: React.FC = () => {
                 {/* Game Settings */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
 
-                    {/* Style & Difficulty Group */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                            <label style={{ fontWeight: 'bold', color: '#333', fontSize: '0.9em' }}>Difficulty</label>
-                            <select value={aiDepth} onChange={e => setAiDepth(Number(e.target.value))} style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white', color: '#000' }}>
-                                <option value={1}>1-Ply</option>
-                                <option value={2}>2-Ply</option>
-                            </select>
-                        </div>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                            <label style={{ fontWeight: 'bold', color: '#333', fontSize: '0.9em' }}>AI Style</label>
-                            <select value={aiStyle} onChange={e => setAiStyle(e.target.value)} style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white', color: '#000' }}>
-                                <option value="aggressive">Aggressive</option>
-                                <option value="safe">Safe</option>
-                            </select>
-                        </div>
+                    {/* Difficulty Only (Style Removed) */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        <label style={{ fontWeight: 'bold', color: '#333', fontSize: '0.9em' }}>Difficulty</label>
+                        <select value={aiDepth} onChange={e => setAiDepth(Number(e.target.value))} style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white', color: '#000' }}>
+                            <option value={1}>1-Ply (Fast)</option>
+                            <option value={2}>2-Ply (Strong)</option>
+                        </select>
                     </div>
 
                     {/* Starting Player Selection (Streamlit Style) */}

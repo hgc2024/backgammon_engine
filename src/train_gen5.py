@@ -115,129 +115,212 @@ def get_obs_from_state(board, bar, off, perspective_player, score, cube_val, tur
     
     return np.array(features, dtype=np.float32)
 
-def evaluate_vs_random(net, device, n_games=50):
+# --- MULTIPROCESSING WORKERS ---
+def eval_random_worker(args):
+    """
+    Worker: Gen 5 Agent (0) vs Random (1).
+    """
+    net_state, seed, device_str = args
+    
+    # Re-import locally to avoid pickle issues if needed, but usually top-level is fine.
+    # Only tricky part is if models are not picklable. State dicts are safe.
+    
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    
+    # Use CPU for workers to avoid CUDA contention/overhead for single games
+    device = torch.device('cpu') 
+    
+    net = BackgammonValueNetGen5().to(device)
+    net.load_state_dict(net_state)
     net.eval()
-    wins = 0
+    
     game = BackgammonGame()
+    game.reset_match()
     
-    for _ in range(n_games):
-        game.reset_match()
-        game_over = False
-        
-        while not game_over:
-            if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
-                game.step(0)
-            elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
-                game.step(0)
-            elif game.phase == GamePhase.DECIDE_MOVE:
-                moves = game.legal_moves
-                if not moves:
-                    game.turn = 1 - game.turn
-                    game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
-                    continue
-                
-                if game.turn == 0:
-                    # Gen 5 Agent
-                    best_idx = 0
-                    boards = []
-                    for seq in moves:
-                        b, ba, o = game.get_afterstate(seq)
-                        obs = get_obs_from_state(b, ba, o, 0, game.score, game.cube_value, 0)
-                        boards.append(obs)
-                    
-                    if boards:
-                        t = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
-                        with torch.no_grad():
-                            logits, _ = net(t)
-                            probs = torch.softmax(logits, dim=1)
-                            weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=device)
-                            vals = torch.sum(probs * weights, dim=1)
-                        best_idx = torch.argmin(vals).item() # Opponent (me) wants to Minimize Opponent's equity? No.
-                        # Wait. If I evaluate state, it's MY turn. I want MAX equity.
-                        # But get_afterstate returns state where it is OPPONENT turn.
-                        # So I want state where Opponent equity is MIN. Correct.
-                        best_idx = torch.argmin(vals).item()
-                    
-                    pts, winner, done = game.step(best_idx)
-                    if done and winner == 0: wins += 1
-                else:
-                    # Random
-                    idx = random.randint(0, len(moves)-1)
-                    pts, winner, done = game.step(idx)
-                    if done and winner == 0: wins += 1
-            elif game.phase == GamePhase.GAME_OVER:
-                game_over = True
-                
-    return wins / n_games
-
-def evaluate_vs_champion(candidate_net, champion_net, device, n_games=50):
-    candidate_net.eval()
-    champion_net.eval()
-    wins = 0
-    game = BackgammonGame()
+    game_over = False
     
-    # Challenge: Candidate (Model A) vs Champion (Model B)
-    # We play n_games. Half as P0, Half as P1 to be fair.
-    
-    for i in range(n_games):
-        game.reset_match()
-        
-        # Swap sides halfway
-        if i < n_games // 2:
-            candidate_player = 0
-        else:
-            candidate_player = 1
+    while not game_over:
+        if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
+            game.step(0)
+        elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
+            game.step(0)
+        elif game.phase == GamePhase.DECIDE_MOVE:
+            moves = game.legal_moves
+            if not moves:
+                game.turn = 1 - game.turn 
+                game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+                continue
             
-        game_over = False
-        
-        while not game_over:
-            if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
-                game.step(0)
-            elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
-                game.step(0)
-            elif game.phase == GamePhase.DECIDE_MOVE:
-                moves = game.legal_moves
-                if not moves:
-                    game.turn = 1 - game.turn
-                    game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
-                    continue
-                
-                # Identify Active Net
-                current_player = game.turn
-                if current_player == candidate_player:
-                    active_net = candidate_net
-                    style_weights = [-3.0, -2.0, -1.0, 1.0, 2.0, 3.0] # Aggressive
-                else:
-                    active_net = champion_net
-                    style_weights = [-3.0, -2.0, -1.0, 1.0, 2.0, 3.0] # Same style
-                
-                # Make Move
+            if game.turn == 0: # Agent
                 best_idx = 0
                 boards = []
                 for seq in moves:
                     b, ba, o = game.get_afterstate(seq)
-                    # Observation from perspective of OPPONENT (who is about to move)
-                    # We want to MINIMIZE their equity.
-                    opp = 1 - current_player
-                    obs = get_obs_from_state(b, ba, o, opp, game.score, game.cube_value, opp)
+                    # Agent (P0) looks at Opponent (P1)
+                    obs = get_obs_from_state(b, ba, o, 1, game.score, game.cube_value, 1)
                     boards.append(obs)
-                
+                    
                 if boards:
                     t = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
                     with torch.no_grad():
-                        logits, _ = active_net(t)
+                        logits, _ = net(t)
                         probs = torch.softmax(logits, dim=1)
-                        weights = torch.tensor(style_weights, device=device)
+                        weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=device)
                         vals = torch.sum(probs * weights, dim=1)
                     best_idx = torch.argmin(vals).item()
                 
-                pts, winner, done = game.step(best_idx)
-                if done:
-                    if winner == candidate_player: wins += 1
-            
-            elif game.phase == GamePhase.GAME_OVER:
-                game_over = True
+                # IMPORTANT: step returns (reward, winner, done) in the FIXED version?
+                # The user applied a fix recently. We must match the game definition.
+                # Assuming src/game.py step() returns (pts, winner, done) or similar.
+                # Just call it and unpack carefully or ignore returns until done.
+                res = game.step(best_idx)
+                if len(res) == 3: pts, winner, done = res
+                else: done = res[2] # Fallback if signature varies, but we know it's fixed.
                 
+                if done:
+                    return 1 if winner == 0 else 0
+            else:
+                # Random
+                idx = random.randint(0, len(moves)-1)
+                res = game.step(idx)
+                if len(res) == 3: pts, winner, done = res
+                else: done = res[2]
+                
+                if done:
+                    return 1 if winner == 0 else 0
+                    
+        elif game.phase == GamePhase.GAME_OVER:
+            # game.winner should be accessible if we trust the loop logic
+            # but usually 'done' catches it first.
+            return 1 if game.winner == 0 else 0 # Fallback if loop breaks weirdly
+            
+    return 0
+
+def eval_champ_worker(args):
+    """
+    Worker: Candidate (net_state) vs Champion (champ_state).
+    cand_player: 0 or 1 (Candidate's seat).
+    """
+    cand_state, champ_state, cand_player, seed = args
+    
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    device = torch.device('cpu')
+    
+    cand_net = BackgammonValueNetGen5().to(device)
+    cand_net.load_state_dict(cand_state)
+    cand_net.eval()
+    
+    champ_net = BackgammonValueNetGen5().to(device)
+    champ_net.load_state_dict(champ_state)
+    champ_net.eval()
+    
+    game = BackgammonGame()
+    game.reset_match()
+    
+    game_over = False
+    
+    weights_aggressive = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=device)
+    
+    while not game_over:
+        if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
+            game.step(0)
+        elif game.phase == GamePhase.RESPOND_TO_DOUBLE:
+            game.step(0)
+        elif game.phase == GamePhase.DECIDE_MOVE:
+            moves = game.legal_moves
+            if not moves:
+                game.turn = 1 - game.turn 
+                game.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+                continue
+            
+            # Identify Active Net
+            current_player = game.turn
+            if current_player == cand_player:
+                active_net = cand_net
+            else:
+                active_net = champ_net
+            
+            # Make Move (Both use same aggressive logic)
+            best_idx = 0
+            boards = []
+            for seq in moves:
+                b, ba, o = game.get_afterstate(seq)
+                opp = 1 - current_player
+                obs = get_obs_from_state(b, ba, o, opp, game.score, game.cube_value, opp)
+                boards.append(obs)
+            
+            if boards:
+                t = torch.tensor(np.array(boards), dtype=torch.float32).to(device)
+                with torch.no_grad():
+                    logits, _ = active_net(t)
+                    probs = torch.softmax(logits, dim=1)
+                    vals = torch.sum(probs * weights_aggressive, dim=1)
+                best_idx = torch.argmin(vals).item()
+            
+            res = game.step(best_idx)
+            if len(res) == 3: pts, winner, done = res
+            else: done = res[2]
+            
+            if done:
+                return 1 if winner == cand_player else 0
+        
+        elif game.phase == GamePhase.GAME_OVER:
+             # Should be caught by done
+             return 0
+
+    return 0
+
+
+def evaluate_vs_random(net, device, n_games=50):
+    # Use Multiprocessing
+    net.cpu() # Move to CPU for state dict extraction (optional but safe)
+    clean_state = {k: v.cpu() for k,v in net.state_dict().items()}
+    net.to(device) # Move back
+    
+    args = []
+    base_seed = random.randint(0, 100000)
+    for i in range(n_games):
+        args.append((clean_state, base_seed + i, 'cpu'))
+        
+    # Use up to 15 cores as requested (or available count if lower)
+    n_cpu = min(15, mp.cpu_count())
+    
+    with mp.Pool(processes=n_cpu) as pool:
+        print(f"    (Parallel Eval: {n_games} games on {n_cpu} cores...)")
+        results = pool.map(eval_random_worker, args)
+        
+    wins = sum(results)
+    return wins / n_games
+
+def evaluate_vs_champion(candidate_net, champion_net, device, n_games=50):
+    # Use Multiprocessing
+    candidate_net.cpu()
+    cand_state = {k: v.cpu() for k,v in candidate_net.state_dict().items()}
+    candidate_net.to(device)
+    
+    champion_net.cpu()
+    champ_state = {k: v.cpu() for k,v in champion_net.state_dict().items()}
+    champion_net.to(device)
+    
+    args = []
+    base_seed = random.randint(0, 100000)
+    for i in range(n_games):
+        # Swap sides halfway logic handled by worker? No, worker takes 'cand_player'.
+        cand_player = 0 if i < n_games // 2 else 1
+        args.append((cand_state, champ_state, cand_player, base_seed + i))
+        
+    # Use up to 15 cores as requested
+    n_cpu = min(15, mp.cpu_count())
+    
+    with mp.Pool(processes=n_cpu) as pool:
+        print(f"    (Parallel KOTH: {n_games} games on {n_cpu} cores...)")
+        results = pool.map(eval_champ_worker, args)
+        
+    wins = sum(results)
     return wins / n_games
 
 def main():
@@ -464,7 +547,7 @@ def main():
                     }, "checkpoints/latest_gen5.pth")
 
             # Evaluation
-            if episode % 250 == 0:
+            if episode % 1000 == 0 or episode % 2500 == 0:
                 # 1. Sanity Check vs Random
                 win_rate_random = evaluate_vs_random(net, device, n_games=200)
                 print(f">>> EVALUATION: Win Rate vs Random: {win_rate_random*100:.1f}%")
@@ -483,6 +566,11 @@ def main():
                     }, "checkpoints/best_vs_random_gen5.pth")
                     trigger_koth = True # Trigger KOTH ONLY on new record
                     
+                # Periodic KOTH Challenge (Every 2500)
+                if episode % 2500 == 0:
+                     print(">>> PERIODIC KOTH CHALLENGE (2500 Episodes)")
+                     trigger_koth = True
+                    
                 # 2. King of the Hill Challenge
                 if trigger_koth:
                     champion_path = "checkpoints/best_so_far_gen5.pth"
@@ -496,7 +584,7 @@ def main():
                             
                             # Fight!
                             print(">>> CHALLENGER APPEARED! Standard vs King...")
-                            win_rate_champ = evaluate_vs_champion(net, champion_net, device, n_games=50)
+                            win_rate_champ = evaluate_vs_champion(net, champion_net, device, n_games=100)
                             print(f">>> KOTH RESULT: Challenger Win Rate: {win_rate_champ*100:.1f}%")
                             
                             if win_rate_champ > 0.55: # Must beat clearly

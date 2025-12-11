@@ -151,7 +151,16 @@ def play_partial_move(req: PartialMoveRequest):
 
 # Agent Config
 MODEL_PATH = "best_so_far_gen4.pth"
+# Check for Gen 5 Priority
+if os.path.exists("checkpoints/best_so_far_gen5.pth"):
+    MODEL_PATH = "checkpoints/best_so_far_gen5.pth"
+elif os.path.exists("checkpoints/latest_gen5.pth"):
+    MODEL_PATH = "checkpoints/latest_gen5.pth"
+elif os.path.exists("checkpoints/best_so_far.pth"):
+    MODEL_PATH = "checkpoints/best_so_far.pth"
+    
 if os.path.exists(MODEL_PATH):
+    # Agent will auto-detect Gen 5 vs Gen 4 based on checkpoint keys in search.py
     agent = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loaded Agent: {MODEL_PATH}")
 
@@ -161,7 +170,9 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
         return {"error": "No Agent Loaded"}
     
     depth = req.depth if req else 1 
-    style = req.style if req else "aggressive"
+    # Hardcode Aggressive for Gen 5 (and Gen 4) as requested.
+    # Gen 5 handles risk via Match Score inputs.
+    style = "aggressive"
     
     # 1. Roll if needed
     if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
