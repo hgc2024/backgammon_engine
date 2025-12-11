@@ -392,6 +392,9 @@ def main():
             resume_path = p
             break
             
+    # Initialize Scheduler EARLY (Before Resume)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50_000, gamma=0.5)
+
     if resume_path:
         print(f">>> Resuming from {resume_path}...")
         try:
@@ -403,6 +406,7 @@ def main():
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             if 'scheduler_state_dict' in checkpoint:
                 scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                
             if 'episode' in checkpoint:
                 start_episode = checkpoint['episode'] + 1
                 print(f"    Loaded Episode: {checkpoint['episode']} (Next: {start_episode})")
@@ -419,15 +423,7 @@ def main():
         print(">>> No resumeable checkpoint found. Starting from scratch (Ep 1).")
         print(f"    Checked: {resume_candidates}")
             
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=50_000, gamma=0.5)
-    # If scheduler_state_dict was in checkpoint, load it now that scheduler is initialized
-    if resume_path: 
-        try:
-            checkpoint = torch.load(resume_path, map_location=device)
-            if 'scheduler_state_dict' in checkpoint:
-                scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        except Exception as e:
-            print(f"!!! Failed to load scheduler state during resume: {e}")
+    # Redundant scheduler init removed from here
     
     recent_losses = deque(maxlen=100)
     
