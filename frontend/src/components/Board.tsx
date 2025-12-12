@@ -276,7 +276,16 @@ export const Board: React.FC = () => {
 
                     {/* Top Row */}
                     <div style={{ display: 'flex', height: '300px', borderBottom: '6px solid #8d6e63' }}>
-                        {Array.from({ length: 12 }, (_, i) => 12 + i).map(i => (
+                        {/* 12-17 (Outer?) */}
+                        {Array.from({ length: 6 }, (_, i) => 12 + i).map(i => (
+                            <Point key={i} index={i} checkers={gameState.board[i]} onDropChecker={handleMove} legalMoves={legalMoves} />
+                        ))}
+
+                        {/* Vertical Divider */}
+                        <div style={{ width: '25px', backgroundColor: '#5d4037', borderLeft: '2px solid #3e2723', borderRight: '2px solid #3e2723' }} />
+
+                        {/* 18-23 (Home for Red) */}
+                        {Array.from({ length: 6 }, (_, i) => 18 + i).map(i => (
                             <Point key={i} index={i} checkers={gameState.board[i]} onDropChecker={handleMove} legalMoves={legalMoves} />
                         ))}
                     </div>
@@ -306,7 +315,16 @@ export const Board: React.FC = () => {
 
                     {/* Bottom Row */}
                     <div style={{ display: 'flex', height: '300px', borderTop: '6px solid #8d6e63' }}>
-                        {Array.from({ length: 12 }, (_, i) => 11 - i).map(i => (
+                        {/* 11-6 (Outer) */}
+                        {Array.from({ length: 6 }, (_, i) => 11 - i).map(i => (
+                            <Point key={i} index={i} checkers={gameState.board[i]} onDropChecker={handleMove} legalMoves={legalMoves} />
+                        ))}
+
+                        {/* Vertical Divider */}
+                        <div style={{ width: '25px', backgroundColor: '#5d4037', borderLeft: '2px solid #3e2723', borderRight: '2px solid #3e2723' }} />
+
+                        {/* 5-0 (Home for White) */}
+                        {Array.from({ length: 6 }, (_, i) => 5 - i).map(i => (
                             <Point key={i} index={i} checkers={gameState.board[i]} onDropChecker={handleMove} legalMoves={legalMoves} />
                         ))}
                     </div>
