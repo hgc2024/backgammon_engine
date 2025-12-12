@@ -325,6 +325,10 @@ export const Sandbox: React.FC = () => {
                     </div>
                 </div>
 
+                <div style={{ backgroundColor: '#222', color: '#0f0', padding: '10px', borderRadius: '4px', fontSize: '0.85em', fontFamily: 'monospace', minHeight: '40px', wordBreak: 'break-word' }}>
+                    {gameState.history.length > 0 ? gameState.history[gameState.history.length - 1] : "Waiting for move..."}
+                </div>
+
                 <button onClick={triggerAI} disabled={isLoading} style={{ padding: '15px', backgroundColor: '#3498db', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '1.1em', cursor: 'pointer' }}>
                     {isLoading ? "Thinking..." : "▶ Trigger AI"}
                 </button>
