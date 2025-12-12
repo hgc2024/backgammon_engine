@@ -199,8 +199,13 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
             # Get Equity (Gen 4)
             val = getattr(agent, "last_value", 0.0)
             
+            # Rough Win % Estimate: (Eq + 1) / 2
+            # Clamped between 0% and 100%
+            win_est = (val + 1.0) / 2.0
+            win_est = max(0.0, min(1.0, win_est)) * 100
+            
             game.step(action)
-            log_move(f"CPU: {move_str} (Eq: {val:.3f})")
+            log_move(f"CPU: {move_str} (Eq: {val:.3f}, Win: ~{int(win_est)}%)")
             
     return get_state_dict()
 
