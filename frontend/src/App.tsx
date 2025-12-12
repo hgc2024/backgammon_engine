@@ -31,7 +31,7 @@ function App() {
         </div>
 
         {/* Content Area */}
-        <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column' }}>
 
           {view === 'home' && (
             <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#ecf0f1', gap: '40px' }}>

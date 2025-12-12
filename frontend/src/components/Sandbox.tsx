@@ -295,7 +295,9 @@ export const Sandbox: React.FC = () => {
                         <li>Drag & Drop freely</li>
                         <li><b>L-Click</b> Point: Add White</li>
                         <li><b>R-Click</b> Point: Add Red</li>
-                        <li><b>Ctrl+Click</b>: Remove</li>
+                        <li><b>Ctrl+Click</b>: Remove from Board</li>
+                        <li><b>L-Click</b> Bar/Off: Add/Inc</li>
+                        <li><b>R-Click</b> Bar/Off: Remove/Dec</li>
                     </ul>
                 </div>
 
@@ -336,7 +338,7 @@ export const Sandbox: React.FC = () => {
 
             {/* --- BOARD AREA (Simplified) --- */}
             <div style={{ flex: 1, padding: '20px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                <div style={{ width: '800px', position: 'relative', backgroundColor: '#f5deb3', border: '15px solid #555', borderRadius: '15px', minHeight: '660px', boxShadow: '0 15px 35px rgba(0,0,0,0.5)' }}>
+                <div style={{ width: '800px', marginRight: '100px', position: 'relative', backgroundColor: '#f5deb3', border: '15px solid #555', borderRadius: '15px', minHeight: '660px', boxShadow: '0 15px 35px rgba(0,0,0,0.5)' }}>
 
                     {/* Top Row: 12-17, 18-23 */}
                     <div style={{ display: 'flex', height: '300px', borderBottom: '6px solid #777' }}>
