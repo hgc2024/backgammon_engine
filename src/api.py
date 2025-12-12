@@ -200,7 +200,7 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
             val = getattr(agent, "last_value", 0.0)
             
             game.step(action)
-            log_move(f"CPU: {move_str} (Eq: {val:.3f}, {style})")
+            log_move(f"CPU: {move_str} (Eq: {val:.3f})")
             
     return get_state_dict()
 
