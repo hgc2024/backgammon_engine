@@ -26,7 +26,7 @@ export const Checker: React.FC<CheckerProps> = ({ color, count, pointIndex, canD
         <div
             ref={drag as any}
             style={{
-                opacity: isDragging ? 0.5 : 1,
+                opacity: isDragging ? 0.9 : 1, // High opacity to ensure visibility
                 cursor: canDrag ? 'grab' : 'default',
                 width: '46px',
                 height: '46px',
