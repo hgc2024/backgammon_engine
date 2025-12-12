@@ -150,14 +150,7 @@ def play_partial_move(req: PartialMoveRequest):
         return {"error": str(e)}
 
 # Agent Config
-MODEL_PATH = "best_so_far_gen4.pth"
-# Check for Gen 5 Priority
-if os.path.exists("checkpoints/best_so_far_gen5.pth"):
-    MODEL_PATH = "checkpoints/best_so_far_gen5.pth"
-elif os.path.exists("checkpoints/latest_gen5.pth"):
-    MODEL_PATH = "checkpoints/latest_gen5.pth"
-elif os.path.exists("checkpoints/best_so_far.pth"):
-    MODEL_PATH = "checkpoints/best_so_far.pth"
+MODEL_PATH = "best_so_far_gen5.pth"
     
 if os.path.exists(MODEL_PATH):
     # Agent will auto-detect Gen 5 vs Gen 4 based on checkpoint keys in search.py
