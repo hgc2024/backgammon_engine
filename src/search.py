@@ -1,8 +1,7 @@
 import torch
 import numpy as np
 import itertools
-from src.game import BackgammonGame
-from src.train_td import get_obs_from_state as get_obs_gen4
+from src.game import BackgammonGame, get_obs_from_state as get_obs_gen4
 from src.model_gen5 import BackgammonValueNetGen5
 
 def get_obs_gen5(board, bar, off, turn, score, cube, player_perspective):

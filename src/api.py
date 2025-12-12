@@ -169,10 +169,7 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
     if not agent:
         return {"error": "No Agent Loaded"}
     
-    # Hardcode depth=2 (Strong) alongside Aggressive style.
     depth = 2 
-    # Hardcode Aggressive for Gen 5 (and Gen 4) as requested.
-    # Gen 5 handles risk via Match Score inputs.
     style = "aggressive"
     
     # 1. Roll if needed

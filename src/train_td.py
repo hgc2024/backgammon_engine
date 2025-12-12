@@ -59,45 +59,8 @@ def log_metrics(episode, loss, epsilon, win_rate_random=None, win_rate_champion=
             writer.writerow(["Episode", "Loss", "Epsilon", "WinRandom", "WinChampion"])
         writer.writerow([episode, f"{loss:.4f}", f"{epsilon:.4f}", win_rate_random if win_rate_random else "", win_rate_champion if win_rate_champion else ""])
 from tqdm import tqdm
-from src.game import BackgammonGame, GamePhase
+from src.game import BackgammonGame, GamePhase, get_obs_from_state
 from src.model import BackgammonValueNet
-
-def get_obs_from_state(board, bar, off, perspective_player, score, cube_val, turn):
-    # Egocentric observation for `perspective_player`
-    if perspective_player == 0:
-        my_board = np.maximum(board, 0)
-        opp_board = np.abs(np.minimum(board, 0))
-    else:
-        # P1 (Black/Negative) -> Flip board (0->23 becomes 23->0)
-        my_board = np.abs(np.minimum(board, 0))[::-1]
-        opp_board = np.maximum(board, 0)[::-1]
-        
-    features = []
-    def encode_point(count):
-        f = [0]*4
-        if count >= 1: f[0] = 1
-        if count >= 2: f[1] = 1
-        if count >= 3: f[2] = 1
-        if count > 3: f[3] = (count - 3) / 2.0
-        return f
-        
-    for c in my_board: features.extend(encode_point(c))
-    for c in opp_board: features.extend(encode_point(c))
-    
-    # Bar/Off
-    my_bar = bar[perspective_player]
-    opp_bar = bar[1-perspective_player]
-    features.extend([my_bar/2.0, opp_bar/2.0])
-    
-    my_off = off[perspective_player]
-    opp_off = off[1-perspective_player]
-    features.extend([my_off/15.0, opp_off/15.0])
-    
-    # Turn: Always 1.0 (It's my turn in this state)
-    features.append(1.0) 
-    features.append(cube_val / 64.0)
-    
-    return np.array(features, dtype=np.float32)
 
 def evaluate_vs_random_worker(args):
     """
