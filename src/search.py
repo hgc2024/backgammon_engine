@@ -89,6 +89,10 @@ class ExpectiminimaxAgent:
         if not moves:
             return None
             
+        # Optimization: If only one move is possible, don't search.
+        if len(moves) == 1:
+            return 0
+            
         if depth == 1:
             return self._run_1ply(game, moves, style)
         elif depth == 2:
