@@ -131,6 +131,18 @@ class ExpectiminimaxAgent:
                  
             values = torch.sum(probs * weights, dim=1) # [N]
             
+            # --- ENDGAME AGGRESSION HEURISTIC ---
+            # Add a tiny bonus for checkers borne off to break "100% win rate" ties.
+            # This prevents the AI from stalling when it knows it will win anyway.
+            # Bonus = (CheckersOff / 15.0) * 0.05
+            off_bonuses = []
+            for (_, _, o) in boards:
+                my_off = o[perspective_player]
+                off_bonuses.append((my_off / 15.0) * 0.05)
+            
+            bonus_tensor = torch.tensor(off_bonuses, device=self.device)
+            values += bonus_tensor
+
         return values
 
     def _run_1ply(self, game, moves, style="aggressive"):
