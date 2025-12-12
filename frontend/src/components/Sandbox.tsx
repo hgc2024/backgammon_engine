@@ -140,6 +140,13 @@ export const Sandbox: React.FC = () => {
             if (parts.length >= 1 && !isNaN(parts[0])) {
                 const d1 = parts[0];
                 const d2 = parts.length > 1 ? parts[1] : 0;
+
+                // Validate Range
+                if (d1 < 1 || d1 > 6 || (d2 !== 0 && (d2 < 1 || d2 > 6))) {
+                    alert("Dice must be between 1 and 6.");
+                    return;
+                }
+
                 await axios.post(`${API_URL}/set-dice`, { dice: [d1, d2] });
                 fetchState();
             }
@@ -300,6 +307,29 @@ export const Sandbox: React.FC = () => {
                         <li><b>R-Click</b> Bar/Off: Remove/Dec</li>
                     </ul>
                 </div>
+
+                {/* Validation Status */}
+                {(() => {
+                    let whiteCount = gameState.bar[0] + gameState.off[0];
+                    let redCount = gameState.bar[1] + gameState.off[1];
+                    gameState.board.forEach(p => {
+                        if (p > 0) whiteCount += p;
+                        else if (p < 0) redCount += Math.abs(p);
+                    });
+
+                    const whiteValid = whiteCount === 15;
+                    const redValid = redCount === 15;
+
+                    if (whiteValid && redValid) return null;
+
+                    return (
+                        <div style={{ backgroundColor: '#e74c3c', color: 'white', padding: '10px', borderRadius: '4px', fontSize: '0.9em' }}>
+                            <b>⚠️ Invalid Board Limit</b>
+                            {!whiteValid && <div>White pieces: {whiteCount} (Need 15)</div>}
+                            {!redValid && <div>Red pieces: {redCount} (Need 15)</div>}
+                        </div>
+                    );
+                })()}
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#444', padding: '10px', borderRadius: '4px' }}>
                     <label>Dice Override (d1, d2)</label>
