@@ -174,7 +174,7 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
     if not agent:
         return {"error": "No Agent Loaded"}
     
-    depth = 2 
+    depth = 3
     style = "aggressive"
     
     # 1. Roll if needed

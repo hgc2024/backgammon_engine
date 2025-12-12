@@ -91,8 +91,10 @@ class ExpectiminimaxAgent:
             
         if depth == 1:
             return self._run_1ply(game, moves, style)
-        elif depth >= 2:
+        elif depth == 2:
             return self._run_2ply(game, moves, style)
+        elif depth >= 3:
+            return self._run_3ply_beam(game, moves, style)
 
     def _evaluate_states(self, boards, player, perspective_player, style="aggressive", current_score=None):
         """
@@ -112,6 +114,10 @@ class ExpectiminimaxAgent:
                  obs = get_obs_gen4(b, ba, o, perspective_player, [0,0], 1, 1)
              obs_list.append(obs)
              
+        # Batch could be empty if no moves
+        if not obs_list:
+            return torch.tensor([], device=self.device)
+
         batch = torch.tensor(np.array(obs_list), dtype=torch.float32).to(self.device)
         with torch.no_grad():
             logits, _ = self.net(batch) # Ignore Pip Head for value search
@@ -209,6 +215,149 @@ class ExpectiminimaxAgent:
                 best_expectation = expected_opp_win
                 best_idx_global = original_idx
                 
+        self.last_value = best_expectation
+        return best_idx_global
+
+    def _run_3ply_beam(self, game, moves, style="aggressive"):
+        """
+        3-Ply Search with aggressive Beam Pruning.
+        Depth: My Move -> Opponent Response -> My Response -> Eval.
+        """
+        # 1. Pruning (Same as 2-ply but tighter beam)
+        # Run 1-Ply eval
+        boards_1ply = []
+        for seq in moves:
+            boards_1ply.append(game.get_afterstate(seq))
+        opponent_1ply = 1 - game.turn
+        values_1ply = self._evaluate_states(boards_1ply, opponent_1ply, opponent_1ply, style, current_score=game.score)
+        scored_moves = []
+        for i, val in enumerate(values_1ply.cpu().numpy()):
+            scored_moves.append((val, i, moves[i]))
+        scored_moves.sort(key=lambda x: x[0])
+        
+        # BEAM WIDTH: 2 (Very Selective)
+        candidates = scored_moves[:2] 
+        
+        best_expectation = -float('inf')
+        best_idx_global = candidates[0][1]
+        
+        sim_game = BackgammonGame()
+        current_turn = game.turn
+        opponent = 1 - current_turn
+        
+        # For each candidate (Ply 1)
+        for (val_1ply, original_idx, seq) in candidates:
+            b1, ba1, o1 = game.get_afterstate(seq)
+            expected_val = 0.0
+            
+            # Opponent Rolls (Ply 2 Chance)
+            for roll, prob in self.dice_dist.items():
+                sim_game.board = b1.copy()
+                sim_game.bar = ba1.copy()
+                sim_game.off = o1.copy()
+                sim_game.turn = opponent
+                sim_game.score = game.score
+                opp_moves = sim_game.get_legal_moves(roll)
+                
+                if not opp_moves:
+                    # Pass -> My Turn, but Dice not rolled.
+                    # Estimate value of state "It is My Turn"
+                    val = self._evaluate_single(b1, ba1, o1, current_turn, style, current_score=game.score)
+                     # Note: _evaluate_single returns value from PERSPECTIVE of `p`.
+                     # Here p=current_turn (ME). So higher is better.
+                    expected_val += val * prob # Add My Equity
+                    continue
+
+                # Find Opponent Best Response (Ply 2 Min)
+                # Greedy 1-ply search for opponent
+                s2_boards = []
+                for om in opp_moves:
+                    s2_boards.append(sim_game.get_afterstate(om))
+                
+                # Evaluate resulting states (which are "My Turn, No Dice")
+                # We assume Opponent wants to MINIMIZE my value of resulting state.
+                vals_s2 = self._evaluate_states(s2_boards, current_turn, current_turn, style, current_score=game.score)
+                
+                # Select Best Opponent Move (Lowest Value for Me)
+                best_opp_idx = torch.argmin(vals_s2).item()
+                best_s2_state = s2_boards[best_opp_idx] # (b, ba, o)
+                
+                # --- PLY 3: My Response (Max) ---
+                # We are at state `best_s2_state` (My Turn).
+                # To clear horizon effect, we simulate MY roll.
+                
+                expected_ply3_val = 0.0
+                
+                # Nested Loop: My Rolls (Ply 3 Chance)
+                # Optimization: We can't do full 21 rolls here (Too slow: 2*21*21 = 882 evaluations).
+                # 882 evals takes <1 sec if batched 2-ply style, but here we have overhead.
+                # Actually 882 * batch_size.
+                # If we rely on _evaluate_single for leaf, it's ok.
+                # But to find *best* move, we must search legal moves.
+                # 882 * 20 moves = 17,000 checks. Too slow.
+                
+                # OPTIMIZATION: Use the `vals_s2` (Static Eval of My Turn) we just computed?
+                # If we do that, it's just 2-Ply! 
+                # User wants 3-Ply.
+                # To make 3-Ply efficient, we trust the `vals_s2`? No.
+                
+                # Compromise: We only expand "My Turn" for the single best Opponent Move?
+                # Yes, we already identified `best_s2_state`.
+                # We only expand that ONE state.
+                
+                sim_game_3 = BackgammonGame()
+                sim_game_3.turn = current_turn
+                
+                for roll3, prob3 in self.dice_dist.items():
+                    sim_game_3.board = best_s2_state[0].copy()
+                    sim_game_3.bar = best_s2_state[1].copy()
+                    sim_game_3.off = best_s2_state[2].copy()
+                    sim_game_3.score = game.score
+                    
+                    my_moves = sim_game_3.get_legal_moves(roll3)
+                    
+                    if not my_moves:
+                        # Pass -> Opponent Turn
+                        val = self._evaluate_single(best_s2_state[0], best_s2_state[1], best_s2_state[2], opponent, style, current_score=game.score)
+                        # Value for Opponent. My Value = -Value?
+                        # Wait, Model output is "Prob Perspective Player Wins".
+                        # If I pass, it is Opponent Turn.
+                        # I want My Winning Prob. = 1.0 - OppWinningProb.
+                        # _evaluate_single(..., p=opponent) returns Opponent Win Prob.
+                        my_prob = 1.0 * (0.0 - val) # No, value is logit-sum? No, existing code logic is complex.
+                        # Let's check _evaluate_states:
+                        # returns "values". values = Sum(Probs * Weights).
+                        # Style "aggressive": weights = [-3, -2, -1, 1, 2, 3].
+                        # So Value > 0 is good for Perspective Player.
+                        # If I Eval from Opponent Perspective, Value is Good for Opponent.
+                        # My Value = -1 * OppValue.
+                        expected_ply3_val += (-1.0 * val) * prob3
+                        continue
+                        
+                    # Find My Best Move (Ply 3 Max)
+                    # Use 0-Ply Eval on all leaf states
+                    s3_boards = []
+                    for mm in my_moves:
+                        s3_boards.append(sim_game_3.get_afterstate(mm))
+                        
+                    # Eval from My Perspective (ME)
+                    vals_s3 = self._evaluate_states(s3_boards, opponent, current_turn, style, current_score=game.score) 
+                    # Note: Next turn is Opponent. So `player` arg to _evaluate_states could be `opponent`?
+                    # `evaluate_states` signature: (boards, player, perspective, ...)
+                    # `p`(player) is used for `get_obs`. Obs: "Whose turn is it?"
+                    # After I move, it is Opponent's turn. So p=opponent.
+                    # But I want value for ME (perspective=current_turn).
+                    
+                    best_my_val = torch.max(vals_s3).item()
+                    expected_ply3_val += best_my_val * prob3
+                    
+                # End My Roll Loop
+                expected_val += expected_ply3_val * prob # Add to total expectation
+                
+            if expected_val > best_expectation:
+                best_expectation = expected_val
+                best_idx_global = original_idx
+        
         self.last_value = best_expectation
         return best_idx_global
 

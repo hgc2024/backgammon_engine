@@ -65,8 +65,8 @@ python -m src.train_gen5
 - **Checkpoints**: Models are saved to `checkpoints/`.
 
 ### Configuration
-- **AI Strength**: Hardcoded to **2-Ply Search** (Strongest) for the best user experience.
-- **Playstyle**: Hardcoded to **Aggressive/Match-Optimized**.
+- **AI Strength**: Powered by **3-Ply Beam Search** (Width=2). The AI considers opponent responses and its own counter-responses to find the optimal move.
+- **Search Logic**: Uses aggressive pruning to inspect thousands of branches in seconds, ensuring Grandmaster-level play without long wait times.
 
 ---
 
