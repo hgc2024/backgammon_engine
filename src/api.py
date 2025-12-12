@@ -50,6 +50,7 @@ class GameState(BaseModel):
 # Helpers
 class StartRequest(BaseModel):
     first_player: int # 0=White, 1=Red, -1=Random
+    reset_score: bool = True # Default to True (Reset Match) unless specified
 
 class AIMoveRequest(BaseModel):
     depth: int = 2
@@ -95,21 +96,32 @@ def read_root():
 @app.post("/start")
 def start_game(req: Optional[StartRequest] = None):
     global history_stack, move_history
-    game.reset_match()
+    
+    # Defaults
+    should_reset_score = True
+    first_player = -1
+    
+    if req:
+        should_reset_score = req.reset_score
+        first_player = req.first_player
+    
+    if should_reset_score:
+        game.reset_match()
+        move_history = ["Match Reset. New Game Started."]
+    else:
+        game.reset_game()
+        move_history = ["New Game Started (Score Kept)."]
+        
     history_stack = []
-    move_history = ["Game Started"]
     
     # Handle custom start
-    requested = -1
-    if req:
-        requested = req.first_player
-        if req.first_player != -1:
-            game.turn = req.first_player
-        else:
-            # Random Start
-            game.turn = random.randint(0, 1)
+    if first_player != -1:
+        game.turn = first_player
+    else:
+        # Random Start
+        game.turn = random.randint(0, 1)
             
-    print(f"Start Game Requested({requested}) -> Actual Turn: {game.turn}")
+    print(f"Start Game Requested(P{first_player}, Reset={should_reset_score}) -> Actual Turn: {game.turn}")
     return get_state_dict()
 
 @app.get("/gamestate")

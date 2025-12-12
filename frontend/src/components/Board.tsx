@@ -114,8 +114,8 @@ export const Board: React.FC = () => {
         }
     };
 
-    const handleStart = (player: number) => withLoading(async () => {
-        await axios.post(`${API_URL}/start`, { first_player: player });
+    const handleStart = (player: number, resetScore: boolean) => withLoading(async () => {
+        await axios.post(`${API_URL}/start`, { first_player: player, reset_score: resetScore });
     });
 
     const handleRoll = () => withLoading(async () => {
@@ -238,7 +238,13 @@ export const Board: React.FC = () => {
                         </div>
                     )}
 
-                    <button onClick={() => handleStart(startOption)} className="btn-primary" disabled={isLoading}>New Game</button>
+                    {/* Spacer to prevent accidental clicks */}
+                    <div style={{ height: '40px', borderBottom: '1px dashed #eee', marginBottom: '10px' }}></div>
+                    <div style={{ fontSize: '0.85em', color: '#999', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold' }}>Match Controls</div>
+
+                    {/* Game Flow Controls */}
+                    <button onClick={() => handleStart(startOption, false)} className="btn-primary" disabled={isLoading} title="Starts a new game but keeps the current score">New Game (Next Round)</button>
+                    <button onClick={() => handleStart(startOption, true)} className="btn-secondary" disabled={isLoading} title="Totally resets the match and score to 0-0">Reset Match (0-0)</button>
                 </div>
 
                 <hr style={{ width: '100%', border: 'none', borderTop: '1px solid #eee' }} />
@@ -355,6 +361,9 @@ export const Board: React.FC = () => {
                 
                 .btn-blue { padding: 12px; background: #2980b9; color: white; border: none; borderRadius: 6px; cursor: pointer; font-weight: bold; width: 100%; font-size: 1.1rem; box-shadow: 0 4px 0 #2471a3; }
                 .btn-blue:active { transform: translateY(2px); box-shadow: 0 2px 0 #2471a3; }
+
+                .btn-secondary { padding: 12px; background: #95a5a6; color: white; border: none; borderRadius: 6px; cursor: pointer; font-weight: 500; width: 100%; text-align: left; transition: background 0.2s; font-size: 1rem; }
+                .btn-secondary:hover { background: #7f8c8d; }
 
                 button:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none !important; transform: none !important; }
             `}</style>
