@@ -215,22 +215,24 @@ export const Board: React.FC = () => {
                 {/* Main Action Buttons */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-                    {/* Game Actions */}
-                    {!isGameOver && (
-                        <>
-                            {canRoll && <button onClick={handleRoll} className="btn-green" disabled={isLoading}>🎲 Roll Dice</button>}
+                    {/* Game Actions - Fixed Height Container to prevent layout shift */}
+                    <div style={{ minHeight: '60px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        {!isGameOver && (
+                            <>
+                                {canRoll && <button onClick={handleRoll} className="btn-green" disabled={isLoading}>🎲 Roll Dice</button>}
 
-                            {isCpuTurn && (
-                                <button onClick={handleAIMove} className="btn-blue" disabled={isLoading}>
-                                    {isLoading ? "Thinking..." : "🤖 Trigger AI Move"}
-                                </button>
-                            )}
+                                {isCpuTurn && (
+                                    <button onClick={handleAIMove} className="btn-blue" disabled={isLoading}>
+                                        {isLoading ? "Thinking..." : "🤖 Trigger AI Move"}
+                                    </button>
+                                )}
 
-                            {!canRoll && isHumanTurn && legalMoves.length === 0 && (
-                                <button onClick={handlePass} className="btn-red" disabled={isLoading}>Pass Turn (No Moves)</button>
-                            )}
-                        </>
-                    )}
+                                {!canRoll && isHumanTurn && legalMoves.length === 0 && (
+                                    <button onClick={handlePass} className="btn-red" disabled={isLoading}>Pass Turn (No Moves)</button>
+                                )}
+                            </>
+                        )}
+                    </div>
 
                     {isGameOver && (
                         <div style={{ textAlign: 'center', padding: '10px', backgroundColor: '#dff0d8', color: '#3c763d', borderRadius: '4px', fontWeight: 'bold' }}>
