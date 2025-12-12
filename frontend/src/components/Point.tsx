@@ -7,9 +7,10 @@ interface PointProps {
     checkers: number; // + for Player, - for CPU
     onDropChecker: (fromIndex: number, toIndex: number) => void;
     legalMoves: number[][]; // Full list of [from, to]
+    isSandbox?: boolean;
 }
 
-export const Point: React.FC<PointProps> = ({ index, checkers, onDropChecker, legalMoves }) => {
+export const Point: React.FC<PointProps> = ({ index, checkers, onDropChecker, legalMoves, isSandbox }) => {
     // Check if this point is a valid destination for ANY move is helpful for static highlighting?
     // But react-dnd `canDrop` is better.
     // Also, we can use `monitor.canDrop()` for highlighting "Valid for dragged item".
@@ -17,16 +18,18 @@ export const Point: React.FC<PointProps> = ({ index, checkers, onDropChecker, le
     const [{ isOver, canDrop }, drop] = useDrop(() => ({
         accept: 'CHECKER',
         canDrop: (item: { pointIndex: number, color: number }) => {
+            if (isSandbox) return true; // Always allow drops in sandbox
+
             // Must be Player's turn/color (handled by Checker drag source theoretically, but double check)
             // Validate move exists in legalMoves
             return legalMoves.some(m => m[0] === item.pointIndex && m[1] === index);
         },
-        drop: (item: { pointIndex: number }) => onDropChecker(item.pointIndex, index),
+        drop: (item: { pointIndex: number, color: number }) => onDropChecker(item.pointIndex, index),
         collect: (monitor) => ({
             isOver: !!monitor.isOver(),
             canDrop: !!monitor.canDrop(),
         }),
-    }), [index, onDropChecker, legalMoves]); // Re-run hook if legalMoves changes
+    }), [index, onDropChecker, legalMoves, isSandbox]); // Re-run hook if legalMoves changes
 
     // Visuals
     const isTop = index >= 12;
@@ -87,7 +90,7 @@ export const Point: React.FC<PointProps> = ({ index, checkers, onDropChecker, le
                     color={checkerColor}
                     count={param.countDisplay}
                     pointIndex={index}
-                    canDrag={checkerColor > 0}
+                    canDrag={isSandbox || checkerColor > 0}
                 />
             ))}
 

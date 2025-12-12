@@ -44,7 +44,7 @@ export const Checker: React.FC<CheckerProps> = ({ color, count, pointIndex, canD
                 zIndex: 10
             }}
         >
-            {count > 1 ? count : ""}
+            {(count > 1 || typeof pointIndex === 'string') ? count : ""}
         </div>
     );
 };

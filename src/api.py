@@ -233,4 +233,39 @@ def pass_turn():
         return get_state_dict()
     else:
         return {"error": "You still have legal moves!", "legal_moves": moves}
+
+# --- SANDBOX ENDPOINTS ---
+class SetStateRequest(BaseModel):
+    board: List[int]
+    bar: List[int]
+    off: List[int]
+    turn: int
+    score: List[int]
+
+class SetDiceRequest(BaseModel):
+    dice: List[int]
+
+@app.post("/set-state")
+def set_state(req: SetStateRequest):
+    game.board = np.array(req.board)
+    game.bar = req.bar
+    game.off = req.off
+    game.turn = req.turn
+    game.score = req.score
+    
+    # Recalculate legal moves just in case
+    if game.phase == GamePhase.DECIDE_MOVE:
+        game.legal_moves = game.get_legal_moves(game.dice)
+         
+    log_move("Sandbox: State Overwritten manually.")
+    return get_state_dict()
+
+@app.post("/set-dice")
+def set_dice(req: SetDiceRequest):
+    game.dice = req.dice
+    game.phase = GamePhase.DECIDE_MOVE
+    # Recalculate moves for new dice
+    game.legal_moves = game.get_legal_moves(game.dice)
+    log_move(f"Sandbox: Dice forced to {req.dice}")
+    return get_state_dict()
     
