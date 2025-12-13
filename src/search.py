@@ -426,7 +426,7 @@ class ExpectiminimaxAgent:
             boards_1ply.append(game.get_afterstate(seq))
             
         opponent_1ply = 1 - game.turn
-        values_1ply = self._evaluate_states(boards_1ply, opponent_1ply, opponent_1ply, style, current_score=game.score)
+        values_1ply, _ = self._evaluate_states(boards_1ply, opponent_1ply, opponent_1ply, style, current_score=game.score)
         
         # Zip moves with their 1-ply values
         scored_moves = []
@@ -619,7 +619,7 @@ class ExpectiminimaxAgent:
                         s3_boards.append(sim_game_3.get_afterstate(mm))
                         
                     # Eval from My Perspective (ME)
-                    vals_s3 = self._evaluate_states(s3_boards, opponent, current_turn, style, current_score=game.score) 
+                    vals_s3, _ = self._evaluate_states(s3_boards, opponent, current_turn, style, current_score=game.score) 
                     # Note: Next turn is Opponent. So `player` arg to _evaluate_states could be `opponent`?
                     # `evaluate_states` signature: (boards, player, perspective, ...)
                     # `p`(player) is used for `get_obs`. Obs: "Whose turn is it?"
