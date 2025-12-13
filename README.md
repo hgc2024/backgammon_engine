@@ -45,6 +45,11 @@ The "King" uses a custom **Transformer Encoder + ResNet** architecture (`src/mod
 - **Parallel Evaluation**: Uses multi-core CPU processing to play thousands of tournament games per hour.
 - **King of the Hill**: A strict evolutionary system where a new model only replaces the current champion if it wins a head-to-head match series.
 
+### Hybrid Endgame Strategy
+While the Neural Network handles complex contact positions, the agent switches to a **Mathematically Optimal Race Heuristic** when contact is broken.
+- **Race Theory**: Maximizes bear-off efficiency while minimizing pip count waste.
+- **Guaranteed Optimality**: Ensures the bot never makes "human" mistakes in simple race endings.
+
 ### Performance
 The current champion (`latest_gen5.pth`) has achieved:
 - **100% Win Rate** against Random Agents.
@@ -53,12 +58,19 @@ The current champion (`latest_gen5.pth`) has achieved:
 
 ---
 
-## 🧪 Sandbox Mode
+## 🧪 Sandbox Mode & Features
 Access the **Sandbox Editor** from the main menu to:
 - **Edit Board**: Drag and drop pieces, add/remove checkers (Left/Right click).
 - **Custom Scenarios**: Set dice rolls and force specific turn phases.
-- **AI Analysis**: Trigger the AI to play from any position.
-- **Win Probability**: Use the "Evaluate Win Chance" tool to get instant equity estimates for any board state.
+- **Advanced Evaluation**:
+    - **2-Ply Lookahead**: The "Eval" button simulates all possible future dice rolls to give an accurate "Before Roll" equity.
+    - **Perspective Splits**: View win probabilities for both YOU and the BOT explicitly (e.g., "You: 30% | Bot: 70%").
+- **AI Analysis**: Trigger the AI to play from any position with adjustable depth (1-Ply to 3-Ply).
+
+### Game Mode
+- **Depth Toggle**: Switch between **1-Ply** (Instant) and **3-Ply** (Deep Thought) during play.
+- **Undo System**: Mistake? Undo moves instantly.
+- **Move Log**: Track the game's history and AI's win confidence turn-by-turn.
 
 ---
 
