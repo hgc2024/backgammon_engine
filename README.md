@@ -68,7 +68,7 @@ Access the **Sandbox Editor** from the main menu to:
 - **AI Analysis**: Trigger the AI to play from any position with adjustable depth (1-Ply to 3-Ply).
 
 ### Game Mode
-- **Depth Toggle**: Switch between **1-Ply** (Instant) and **3-Ply** (Deep Thought) during play.
+- **Standard Play**: The AI runs at **2-Ply (Master Level)** by default. This offers the best balance of speed, stability, and tactical accuracy.
 - **Undo System**: Mistake? Undo moves instantly.
 - **Move Log**: Track the game's history and AI's win confidence turn-by-turn.
 
