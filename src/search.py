@@ -84,11 +84,99 @@ class ExpectiminimaxAgent:
             
         self.last_value = 0.0
 
-    def get_state_value(self, game, style="aggressive"):
+    def get_state_value(self, game, style="aggressive", depth=2):
         """
         Evaluates the current state.
+        If depth > 0, performs lookahead (Expectiminimax).
         Returns dict with "equity" and "win_prob" (0.0-1.0).
         """
+        if depth > 0:
+            # LOOKAHEAD EVALUATION
+            if game.dice:
+                # Decision Node: Find value of Best Move
+                # This populates self.last_value and self.last_win_prob
+                best_idx = self.get_action(game, depth=depth)
+                # If no moves (Pass), get_action returns None?
+                # If None, value is evaluated from Opponent Turn perspective?
+                # get_action handles pass internally? No, returns None.
+                # If None, we need to eval resulting state (Turn Switch).
+                
+                if best_idx is None:
+                    # Pass. Value is -Eval(Opponent).
+                    # Approximate by evaluating state where turn is switched.
+                    # Or just 0-ply eval of inverted state?
+                    # get_action usually implies we are deciding.
+                    # If pass, we are effectively at next state.
+                    pass # TODO: Handle Pass Eval more accurately.
+                    # Fallback to 0-ply if pass?
+                    return self.get_state_value(game, style, depth=0)
+                
+                return {
+                    "equity": self.last_value,
+                    "win_prob": self.last_win_prob
+                }
+            else:
+                # Chance Node: Expectation over Dice
+                # This is "1-Ply Expectiminimax Eval" (Average of Best Moves)
+                # or "2-Ply" if depth=2 passed to get_action?
+                # User wanted 2-ply. So we pass depth=2.
+                # Loop 21 rolls.
+                
+                total_eq = 0.0
+                total_wp = 0.0
+                
+                # Use same dist as search
+                sim_game = BackgammonGame()
+                sim_game.board = game.board.copy()
+                sim_game.bar = game.bar.copy()
+                sim_game.off = game.off.copy()
+                sim_game.turn = game.turn
+                sim_game.score = game.score
+                sim_game.cube_value = game.cube_value
+                sim_game.cube_owner = game.cube_owner
+                
+                for roll, prob in self.dice_dist.items():
+                    sim_game.dice = list(roll)
+                    if roll[0] == roll[1]: sim_game.dice *= 2
+                    
+                    sim_game.legal_moves = sim_game.get_legal_moves(sim_game.dice)
+                    
+                    if not sim_game.legal_moves:
+                        # Pass
+                        # Eval resulting state (Opponent Turn)
+                        # We want My Equity. = -OppEquity.
+                        # Eval 0-ply for speed? Or recursive?
+                        # Recursive might be too slow (21 calls).
+                        # Use 0-ply for Pass cases.
+                         # Opponent perspective
+                        v, wp = self._evaluate_states([(sim_game.board, sim_game.bar, sim_game.off)], 1-game.turn, 1-game.turn, style, current_score=game.score)
+                        
+                        # My Equity = -OppEquity
+                        my_eq = -v.item()
+                        my_wp = 1.0 - wp.item()
+                        
+                        total_eq += my_eq * prob
+                        total_wp += my_wp * prob
+                        continue
+                        
+                    # Find Best Move (Depth 1 is sufficient/standard for Eval Loop)
+                    # If we do Depth 2 inside loop, it's 21 * 2-ply = Slow.
+                    # Depth 1 inside loop = "2-Ply Eval".
+                    # i.e. Roll -> Max -> Eval.
+                    # This captures "My Move" impact.
+                    # User asked for 2-ply. This IS 2-ply (Chance -> Max -> Static).
+                    
+                    self.get_action(sim_game, depth=1) # Populates last_value
+                    total_eq += self.last_value * prob
+                    total_wp += self.last_win_prob * prob
+                    
+                return {
+                    "equity": total_eq,
+                    "win_prob": total_wp
+                }
+
+
+        # 0-PLY STATIC EVALUATION
         # Manual Obs Construction to access Probs
         p = game.turn
         scores = game.score if game.score else [0, 0]
@@ -302,7 +390,11 @@ class ExpectiminimaxAgent:
             values += bonus_tensor
             values -= penalty_tensor
 
-        return values
+            # Win Probability (Sum of indices 3, 4, 5)
+            # 0=LoseBG, 1=LoseG, 2=Lose, 3=Win, 4=WinG, 5=WinBG
+            win_probs = torch.sum(probs[:, 3:], dim=1)
+
+            return values, win_probs
 
     def _run_1ply(self, game, moves, style="aggressive"):
         boards = []
@@ -311,13 +403,19 @@ class ExpectiminimaxAgent:
             
         opponent = 1 - game.turn
         # Pass game.score to evaluation
-        values = self._evaluate_states(boards, opponent, opponent, style, current_score=game.score)
+        values, win_probs = self._evaluate_states(boards, opponent, opponent, style, current_score=game.score)
         
         # values is P(Opponent Wins). We want to MINIMIZE Opponent Advantage.
         best_val_for_opp = torch.min(values).item()
         best_idx = torch.argmin(values).item()
         
+        # Win Prob: best_idx corresponds to best move.
+        # win_probs is from Opponent Perspective.
+        # My Win Prob = 1 - Opponent Win Prob.
+        opp_win_prob = win_probs[best_idx].item()
+        
         self.last_value = -1.0 * best_val_for_opp
+        self.last_win_prob = 1.0 - opp_win_prob # Store Win Prob
         return best_idx
 
     def _run_2ply(self, game, moves, style="aggressive"):
@@ -344,7 +442,8 @@ class ExpectiminimaxAgent:
         
         # --- FULL 2-PLY SEARCH ON CANDIDATES ---
         best_expectation = -float('inf')
-        best_idx_global = candidates[0][1] # Default to best 1-ply
+        best_expectation_wp = 0.0 # Default
+        best_idx_global = 0 if candidates else None
         
         sim_game = BackgammonGame()
         current_turn = game.turn
@@ -353,6 +452,7 @@ class ExpectiminimaxAgent:
         for (val_1ply, original_idx, seq) in candidates:
             b1, ba1, o1 = game.get_afterstate(seq)
             expected_opp_win = 0.0
+            expected_opp_win_prob = 0.0
             
             # Simulate Opponent Rolls
             for roll, prob in self.dice_dist.items():
@@ -365,8 +465,10 @@ class ExpectiminimaxAgent:
                 opp_moves = sim_game.get_legal_moves(roll)
                 
                 if not opp_moves:
-                    val = self._evaluate_single(b1, ba1, o1, opponent, style, current_score=game.score)
-                    expected_opp_win += val * prob
+                    # Use evaluate_states to get both val and win_prob
+                    v, wp = self._evaluate_states([(b1, ba1, o1)], opponent, opponent, style, current_score=game.score)
+                    expected_opp_win += v.item() * prob
+                    expected_opp_win_prob += wp.item() * prob
                     continue
                 
                 # Opponent Best Response (1-Ply for them)
@@ -374,19 +476,24 @@ class ExpectiminimaxAgent:
                 for om in opp_moves:
                     s2_boards.append(sim_game.get_afterstate(om))
                     
-                vals_s2 = self._evaluate_states(s2_boards, current_turn, current_turn, style, current_score=game.score)
+                vals_s2, win_probs_s2 = self._evaluate_states(s2_boards, current_turn, current_turn, style, current_score=game.score)
                 
                 # Opponent chooses move that MINIMIZES my equity
-                best_s2_val_for_me = torch.min(vals_s2).item()
+                best_opp_idx = torch.argmin(vals_s2).item()
+                best_s2_val_for_me = vals_s2[best_opp_idx].item()
+                best_s2_wp_for_me = win_probs_s2[best_opp_idx].item()
                 
                 expected_opp_win += best_s2_val_for_me * prob
+                expected_opp_win_prob += best_s2_wp_for_me * prob
                 
             # We want to MAXIMIZE the expected equity
             if expected_opp_win > best_expectation:
                 best_expectation = expected_opp_win
+                best_expectation_wp = expected_opp_win_prob
                 best_idx_global = original_idx
                 
         self.last_value = best_expectation
+        self.last_win_prob = best_expectation_wp
         return best_idx_global
 
     def _run_3ply_beam(self, game, moves, style="aggressive"):
@@ -400,7 +507,7 @@ class ExpectiminimaxAgent:
         for seq in moves:
             boards_1ply.append(game.get_afterstate(seq))
         opponent_1ply = 1 - game.turn
-        values_1ply = self._evaluate_states(boards_1ply, opponent_1ply, opponent_1ply, style, current_score=game.score)
+        values_1ply, _ = self._evaluate_states(boards_1ply, opponent_1ply, opponent_1ply, style, current_score=game.score)
         scored_moves = []
         for i, val in enumerate(values_1ply.cpu().numpy()):
             scored_moves.append((val, i, moves[i]))
@@ -447,7 +554,7 @@ class ExpectiminimaxAgent:
                 
                 # Evaluate resulting states (which are "My Turn, No Dice")
                 # We assume Opponent wants to MINIMIZE my value of resulting state.
-                vals_s2 = self._evaluate_states(s2_boards, current_turn, current_turn, style, current_score=game.score)
+                vals_s2, _ = self._evaluate_states(s2_boards, current_turn, current_turn, style, current_score=game.score)
                 
                 # Select Best Opponent Move (Lowest Value for Me)
                 best_opp_idx = torch.argmin(vals_s2).item()

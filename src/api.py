@@ -248,30 +248,44 @@ class SetStateRequest(BaseModel):
 class SetDiceRequest(BaseModel):
     dice: List[int]
 
+class EvaluateRequest(BaseModel):
+    depth: int = 2
+
 @app.post("/evaluate")
-def evaluate_state():
+def evaluate_state(req: Optional[EvaluateRequest] = None):
     # Trigger Reload for Heuristics
     if not agent:
         return {"error": "No Agent Loaded"}
     
+    depth = req.depth if req else 2
+    
     # Use current game state
-    # get_state_value now returns { "equity", "win_prob" }
-    res = agent.get_state_value(game, style="aggressive")
+    # get_state_value uses depth=2 by default now if passed
+    res = agent.get_state_value(game, style="aggressive", depth=depth)
     
     val = res["equity"]
     win_est = res["win_prob"] * 100 # Convert to %
     
-    # Normalize to PLAYER Perspective (White/0)
-    # If it is CPU's turn (1), val is CPU's equity.
-    # Player Equity = -CPU Equity
-    # Player Win % = 100 - CPU Win %
-    if game.turn == 1:
-        val = -val
-        win_est = 100.0 - win_est
+    # Normalize: We should always return the CURRENT PLAYER'S perspective (Win Prob).
+    # The UI should display "Current Turn: Win %".
+    
+    # Calculate explicit probabilities for UI clarity
+    # If Turn = 0 (Player/White): win_est is Player Win%
+    # If Turn = 1 (CPU/Red): win_est is CPU Win%
+    
+    if game.turn == 0:
+        wp_player = win_est
+        wp_cpu = 100.0 - win_est
+    else:
+        wp_cpu = win_est
+        wp_player = 100.0 - win_est
     
     return {
         "equity": val,
-        "win_prob": win_est
+        "win_prob": win_est,
+        "win_prob_player": wp_player,
+        "win_prob_cpu": wp_cpu,
+        "eval_turn": game.turn
     }
 
 @app.post("/set-state")

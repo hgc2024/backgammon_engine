@@ -82,6 +82,15 @@ const SandboxBarZoneWrapper: React.FC<BarZoneProps> = ({ color, onDrop, children
     );
 };
 
+// --- Interface for Eval Result ---
+interface EvalResult {
+    equity: number;
+    win_prob: number;
+    win_prob_player?: number;
+    win_prob_cpu?: number;
+    eval_turn?: number;
+}
+
 export const Sandbox: React.FC = () => {
     // --- STATE ---
     // Start with empty/default state
@@ -101,7 +110,7 @@ export const Sandbox: React.FC = () => {
     });
     const [diceInput, setDiceInput] = useState<string>("3,1");
     const [aiDepth, setAiDepth] = useState<number>(2);
-    const [evalResult, setEvalResult] = useState<{ equity: number, win_prob: number } | null>(null);
+    const [evalResult, setEvalResult] = useState<EvalResult | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
 
     // --- API SYNC ---
@@ -397,9 +406,14 @@ export const Sandbox: React.FC = () => {
 
 
                 {evalResult && (
-                    <div style={{ backgroundColor: '#2c3e50', color: '#f1c40f', padding: '5px', borderRadius: '4px', fontSize: '0.85em', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Eq: {evalResult.equity.toFixed(2)}</span>
-                        <b>Win: {evalResult.win_prob.toFixed(1)}%</b>
+                    <div style={{ backgroundColor: '#2c3e50', color: '#f1c40f', padding: '5px', borderRadius: '4px', fontSize: '0.8em', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#ecf0f1' }}>Equity (Turn): {evalResult.equity.toFixed(2)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+                            <span style={{ color: '#2ecc71' }}>You: {evalResult.win_prob_player?.toFixed(1)}%</span>
+                            <span style={{ color: '#e74c3c' }}>Bot: {evalResult.win_prob_cpu?.toFixed(1)}%</span>
+                        </div>
                     </div>
                 )}
 
