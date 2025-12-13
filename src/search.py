@@ -180,7 +180,8 @@ class ExpectiminimaxAgent:
             for (b, ba, o) in boards:
                 # Bonus for Off
                 my_off = o[perspective_player]
-                off_bonuses.append((my_off / 15.0) * 0.05)
+                # Boost: Make bearing off HIGHLY desirable to break ties in won games.
+                off_bonuses.append((my_off / 15.0) * 0.5)
                 
                 # Penalty for High Pips (Encourage Racing / Saving Gammon)
                 # Player 0: 24 -> 0.Indices 0..23. Dist = index + 1.
@@ -198,11 +199,9 @@ class ExpectiminimaxAgent:
                      # Bar Pips (25)
                      pips += ba[1] * 25
                 
-                # Max Pips ~ 375. Penalty factor 0.0002 per pip?
-                # 100 pips = 0.02 penalty.
-                # Lose 1.0 -> Lose 1.02.
-                # If saving gammon reduces pips by 20 -> 0.004 improvement.
-                pip_penalties.append((pips / 375.0) * 0.05)
+                # Max Pips ~ 375. Penalty factor.
+                # Increase penalty to ensure strict race logic when winning.
+                pip_penalties.append((pips / 375.0) * 0.2)
 
             bonus_tensor = torch.tensor(off_bonuses, device=self.device)
             penalty_tensor = torch.tensor(pip_penalties, device=self.device)

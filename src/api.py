@@ -250,7 +250,7 @@ class SetDiceRequest(BaseModel):
 
 @app.post("/evaluate")
 def evaluate_state():
-    # Trigger Reload
+    # Trigger Reload for Heuristics
     if not agent:
         return {"error": "No Agent Loaded"}
     
