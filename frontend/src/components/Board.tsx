@@ -154,58 +154,55 @@ export const Board: React.FC = () => {
     const logs = [...gameState.history].reverse();
 
     return (
-        <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'sans-serif', backgroundColor: '#eef1f5', color: '#1a1a1a' }}>
+        <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', fontFamily: 'sans-serif', backgroundColor: '#eef1f5', color: '#1a1a1a' }}>
 
-            {/* --- SIDEBAR (Streamlit Style) --- */}
-            <div style={{ width: '380px', backgroundColor: '#ffffff', padding: '25px', borderRight: '1px solid #ddd', display: 'flex', flexDirection: 'column', gap: '25px', boxShadow: '2px 0 10px rgba(0,0,0,0.05)' }}>
+            {/* --- SIDEBAR (Dark Theme - Matches Sandbox) --- */}
+            <div style={{ width: '340px', height: '100vh', backgroundColor: '#2c3e50', color: '#ecf0f1', padding: '20px', borderRight: '1px solid #34495e', display: 'flex', flexDirection: 'column', gap: '20px', boxShadow: '2px 0 10px rgba(0,0,0,0.2)', boxSizing: 'border-box', overflowY: 'auto' }}>
                 <div>
-                    <h2 style={{ marginTop: 0, marginBottom: '5px', color: '#1f1f1f' }}>Backgammon AI</h2>
-                    <div style={{ fontSize: '0.95em', color: '#555', fontWeight: '500' }}>Gen 5 Engine (Transformer)</div>
-                    <div style={{ fontSize: '0.8em', color: '#888', marginTop: '2px' }}>Hardware: {gameState.device}</div>
+                    <h2 style={{ marginTop: 0, marginBottom: '5px', color: '#ecf0f1', borderBottom: '1px solid #34495e', paddingBottom: '10px' }}>Backgammon AI</h2>
+                    <div style={{ fontSize: '0.9em', color: '#bdc3c7', fontWeight: '500' }}>Gen 5 Engine (Transformer)</div>
+                    <div style={{ fontSize: '0.75em', color: '#7f8c8d', marginTop: '2px' }}>Hardware: {gameState.device}</div>
                 </div>
 
-                {/* Score Card */}
-                <div style={{ padding: '15px', backgroundColor: '#f8f9fa', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
-                    <div style={{ fontWeight: 'bold', marginBottom: '10px', color: '#333' }}>Score</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1em' }}>
-                        <span style={{ color: '#2c3e50' }}>You: <b>{gameState.score[0]}</b> <small style={{ color: '#777' }}>({gameState.pips ? gameState.pips[0] : '-'} pips)</small></span>
-                        <span style={{ color: '#c0392b' }}>CPU: <b>{gameState.score[1]}</b> <small style={{ color: '#777' }}>({gameState.pips ? gameState.pips[1] : '-'} pips)</small></span>
+                {/* Score Card (Dark) */}
+                <div style={{ padding: '15px', backgroundColor: '#34495e', borderRadius: '8px', border: '1px solid #2c3e50', boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.2)' }}>
+                    <div style={{ fontWeight: 'bold', marginBottom: '10px', color: '#ecf0f1', fontSize: '0.9em', textTransform: 'uppercase', letterSpacing: '1px' }}>Match Score</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.2em' }}>
+                        <span style={{ color: '#2ecc71' }}>You: <b>{gameState.score[0]}</b> <small style={{ color: '#95a5a6', fontSize: '0.6em' }}>({gameState.pips ? gameState.pips[0] : '-'})</small></span>
+                        <span style={{ color: '#e74c3c' }}>CPU: <b>{gameState.score[1]}</b> <small style={{ color: '#95a5a6', fontSize: '0.6em' }}>({gameState.pips ? gameState.pips[1] : '-'})</small></span>
                     </div>
                 </div>
 
                 {/* Game Settings */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-
-                    {/* Starting Player Selection (Streamlit Style) */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        <label style={{ fontWeight: 'bold', color: '#333' }}>Who Starts?</label>
+                        <label style={{ fontWeight: 'bold', color: '#bdc3c7', fontSize: '0.9em' }}>Who Starts?</label>
                         <select
                             value={startOption}
                             onChange={e => setStartOption(Number(e.target.value))}
-                            style={{ padding: '10px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white', color: '#000' }}
+                            style={{ padding: '8px', borderRadius: '4px', border: 'none', backgroundColor: '#34495e', color: 'white' }}
                         >
                             <option value={-1}>Random Start</option>
                             <option value={0}>You (White)</option>
                             <option value={1}>CPU (Red)</option>
                         </select>
-                        <div style={{ fontSize: '0.8em', color: '#777', fontStyle: 'italic' }}>Select who makes the first move.</div>
                     </div>
                 </div>
 
-                {message && <div style={{ backgroundColor: '#ffebee', color: '#c62828', padding: '10px', borderRadius: '4px', fontSize: '0.9em', border: '1px solid #ffcdd2' }}>{message}</div>}
+                {message && <div style={{ backgroundColor: '#c0392b', color: 'white', padding: '10px', borderRadius: '4px', fontSize: '0.9em', fontWeight: 'bold' }}>{message}</div>}
 
                 <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={fetchState} disabled={isLoading} style={{ flex: 1, padding: '8px', cursor: 'pointer', backgroundColor: '#fff', border: '1px solid #ccc', borderRadius: '4px', color: '#333' }}>Refresh</button>
-                    <button onClick={handleUndo} disabled={isLoading} style={{ flex: 1, padding: '8px', cursor: 'pointer', backgroundColor: '#fff', border: '1px solid #ccc', borderRadius: '4px', color: '#333' }}>Undo</button>
+                    <button onClick={fetchState} disabled={isLoading} style={{ flex: 1, padding: '8px', cursor: 'pointer', backgroundColor: '#34495e', border: 'none', borderRadius: '4px', color: '#ecf0f1', fontSize: '0.9em' }}>Refresh</button>
+                    <button onClick={handleUndo} disabled={isLoading} style={{ flex: 1, padding: '8px', cursor: 'pointer', backgroundColor: '#34495e', border: 'none', borderRadius: '4px', color: '#ecf0f1', fontSize: '0.9em' }}>Undo</button>
                 </div>
 
-                <hr style={{ width: '100%', border: 'none', borderTop: '1px solid #eee' }} />
+                <div style={{ borderTop: '1px solid #34495e', margin: '5px 0' }} />
 
                 {/* Main Action Buttons */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-                    {/* Game Actions - Fixed Height Container to prevent layout shift */}
-                    <div style={{ minHeight: '60px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    {/* Game Actions */}
+                    <div style={{ minHeight: '50px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                         {!isGameOver && (
                             <>
                                 {canRoll && <button onClick={handleRoll} className="btn-green" disabled={isLoading}>🎲 Roll Dice</button>}
@@ -217,33 +214,31 @@ export const Board: React.FC = () => {
                                 )}
 
                                 {!canRoll && isHumanTurn && legalMoves.length === 0 && (
-                                    <button onClick={handlePass} className="btn-red" disabled={isLoading}>Pass Turn (No Moves)</button>
+                                    <button onClick={handlePass} className="btn-red" disabled={isLoading}>Pass Turn (You are stuck)</button>
                                 )}
                             </>
                         )}
                     </div>
 
                     {isGameOver && (
-                        <div style={{ textAlign: 'center', padding: '10px', backgroundColor: '#dff0d8', color: '#3c763d', borderRadius: '4px', fontWeight: 'bold' }}>
-                            Game Over! {gameState.score[0] > gameState.score[1] ? "You Won!" : "CPU Won!"}
+                        <div style={{ textAlign: 'center', padding: '10px', backgroundColor: '#27ae60', color: 'white', borderRadius: '4px', fontWeight: 'bold' }}>
+                            {gameState.score[0] > gameState.score[1] ? "Game Over - You Won!" : "Game Over - CPU Won!"}
                         </div>
                     )}
 
-                    {/* Spacer to prevent accidental clicks */}
-                    <div style={{ height: '40px', borderBottom: '1px dashed #eee', marginBottom: '10px' }}></div>
-                    <div style={{ fontSize: '0.85em', color: '#999', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 'bold' }}>Match Controls</div>
-
-                    {/* Game Flow Controls */}
-                    <button onClick={() => handleStart(startOption, false)} className="btn-primary" disabled={isLoading} title="Starts a new game but keeps the current score">New Game (Next Round)</button>
-                    <button onClick={() => handleStart(startOption, true)} className="btn-secondary" disabled={isLoading} title="Totally resets the match and score to 0-0">Reset Match (0-0)</button>
+                    {/* Match Controls */}
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                        <button onClick={() => handleStart(startOption, false)} className="btn-primary" disabled={isLoading} style={{ flex: 1, fontSize: '0.85em', padding: '10px' }}>Next Round</button>
+                        <button onClick={() => handleStart(startOption, true)} className="btn-secondary" disabled={isLoading} style={{ flex: 1, fontSize: '0.85em', padding: '10px' }}>Reset Match</button>
+                    </div>
                 </div>
 
-                <hr style={{ width: '100%', border: 'none', borderTop: '1px solid #eee' }} />
+                <div style={{ borderTop: '1px solid #34495e', margin: '5px 0' }} />
 
-                {/* Logs */}
-                <div style={{ flex: 1, overflowY: 'auto', fontSize: '0.9em', color: '#111', backgroundColor: '#fafafa', padding: '10px', borderRadius: '4px', border: '1px solid #eee' }}>
-                    <b style={{ display: 'block', marginBottom: '8px', color: '#333' }}>Action Log</b>
-                    <ul style={{ paddingLeft: '20px', marginTop: '0', marginBottom: 0 }}>
+                {/* Logs (Dark) */}
+                <div style={{ flex: 1, overflowY: 'auto', fontSize: '0.85em', color: '#ccc', backgroundColor: '#222', padding: '10px', borderRadius: '4px', border: '1px solid #444', fontFamily: 'monospace' }}>
+                    <b style={{ display: 'block', marginBottom: '8px', color: '#fff', borderBottom: '1px solid #444', paddingBottom: '4px' }}>Action Log</b>
+                    <ul style={{ paddingLeft: '15px', marginTop: '0', marginBottom: 0 }}>
                         {logs.map((log, i) => <li key={i} style={{ marginBottom: '4px' }}>{log}</li>)}
                     </ul>
                 </div>
@@ -251,7 +246,7 @@ export const Board: React.FC = () => {
             </div>
 
             {/* --- MAIN CONTENT (Board) --- */}
-            <div style={{ flex: 1, padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#eef1f5' }}>
+            <div style={{ flex: 1, height: '100%', overflowY: 'auto', padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', backgroundColor: '#eef1f5', boxSizing: 'border-box' }}>
 
                 <div style={{ marginBottom: '30px', fontSize: '1.6em', textAlign: 'center', backgroundColor: 'white', padding: '15px 30px', borderRadius: '10px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
                     <span style={{ color: '#555' }}>Phase:</span> <b style={{ color: '#000' }}>{gameState.phase}</b>
