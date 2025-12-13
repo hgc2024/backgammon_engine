@@ -123,7 +123,7 @@ export const Board: React.FC = () => {
     });
 
     const handleAIMove = () => withLoading(async () => {
-        await axios.post(`${API_URL}/ai-move`, {}); // depth/style removed
+        await axios.post(`${API_URL}/ai-move`, { depth: 2 });
     });
 
     const handleMove = (fromIdx: number, toIdx: number | 'off') => withLoading(async () => {
@@ -175,17 +175,6 @@ export const Board: React.FC = () => {
 
                 {/* Game Settings */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-
-                    {/* Difficulty Removed (Hardcoded to 2-Ply) */}
-                    {/* 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        <label style={{ fontWeight: 'bold', color: '#333', fontSize: '0.9em' }}>Difficulty</label>
-                        <select value={aiDepth} onChange={e => setAiDepth(Number(e.target.value))} style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc', backgroundColor: 'white', color: '#000' }}>
-                            <option value={1}>1-Ply (Fast)</option>
-                            <option value={2}>2-Ply (Strong)</option>
-                        </select>
-                    </div> 
-                    */}
 
                     {/* Starting Player Selection (Streamlit Style) */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
