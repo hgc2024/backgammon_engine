@@ -38,12 +38,18 @@ def get_obs_gen5(board, bar, off, turn, score, cube, player_perspective):
     return np.array(base_obs, dtype=np.float32)
 
 class ExpectiminimaxAgent:
-    def __init__(self, model_path, device="cuda"):
+    def __init__(self, model_path, device='cpu', use_race_heuristic=True):
         self.device = device
+        self.model_path = model_path
+        self.use_race_heuristic = use_race_heuristic
         self.is_gen5 = False
         
         # Load Checkpoint First to Determine Architecture
-        checkpoint = torch.load(model_path, map_location=device)
+        try:
+            checkpoint = torch.load(model_path, map_location=self.device)
+        except Exception as e:
+            print(f"Error loading model checkpoint: {e}")
+            raise
         state_dict = checkpoint['model_state_dict'] if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint else checkpoint
 
         # Heuristic to detect Gen 5: Check for transformer keys or known Gen 5 input size layer
@@ -127,7 +133,7 @@ class ExpectiminimaxAgent:
             
         # --- HEURISTIC OVERRIDE FOR PURE RACES ---
         # If no contact, use simple "Max Off, Min Pips" logic.
-        if self._is_pure_race(game):
+        if self.use_race_heuristic and self._is_pure_race(game):
             # print("DEBUG: Using Race Heuristic")
             return self._run_race_heuristic(game, moves)
 

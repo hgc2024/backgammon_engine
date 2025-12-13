@@ -166,7 +166,7 @@ MODEL_PATH = "best_so_far_gen5.pth"
     
 if os.path.exists(MODEL_PATH):
     # Agent will auto-detect Gen 5 vs Gen 4 based on checkpoint keys in search.py
-    agent = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu")
+    agent = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu", use_race_heuristic=True)
     print(f"Loaded Agent: {MODEL_PATH}")
 
 @app.post("/ai-move")
