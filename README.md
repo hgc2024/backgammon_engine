@@ -53,6 +53,15 @@ The current champion (`latest_gen5.pth`) has achieved:
 
 ---
 
+## 🧪 Sandbox Mode
+Access the **Sandbox Editor** from the main menu to:
+- **Edit Board**: Drag and drop pieces, add/remove checkers (Left/Right click).
+- **Custom Scenarios**: Set dice rolls and force specific turn phases.
+- **AI Analysis**: Trigger the AI to play from any position.
+- **Win Probability**: Use the "Evaluate Win Chance" tool to get instant equity estimates for any board state.
+
+---
+
 ## 🛠️ Advanced Usage
 
 ### Training a New Model

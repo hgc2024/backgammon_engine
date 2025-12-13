@@ -245,6 +245,24 @@ class SetStateRequest(BaseModel):
 class SetDiceRequest(BaseModel):
     dice: List[int]
 
+@app.post("/evaluate")
+def evaluate_state():
+    if not agent:
+        return {"error": "No Agent Loaded"}
+    
+    # Use current game state
+    val = agent.get_state_value(game, style="aggressive")
+    
+    # Rough Win % Estimate: (Eq + 1) / 2
+    # Clamped between 0% and 100%
+    win_est = (val + 1.0) / 2.0
+    win_est = max(0.0, min(1.0, win_est)) * 100
+    
+    return {
+        "equity": val,
+        "win_prob": win_est
+    }
+
 @app.post("/set-state")
 def set_state(req: SetStateRequest):
     game.board = np.array(req.board)

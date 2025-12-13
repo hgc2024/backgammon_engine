@@ -78,6 +78,17 @@ class ExpectiminimaxAgent:
             
         self.last_value = 0.0
 
+    def get_state_value(self, game, style="aggressive"):
+        """
+        Evaluates the current state of the game from the current player's perspective.
+        Returns the raw equity value.
+        """
+        # Evaluate from the perspective of the current turn player
+        val_tensor = self._evaluate_states([(game.board, game.bar, game.off)], game.turn, game.turn, style, game.score)
+        if len(val_tensor) > 0:
+            return val_tensor.item()
+        return 0.0
+
     def get_action(self, game, roll=None, depth=1, style="aggressive"):
         """
         Returns the best action index from game.legal_moves.

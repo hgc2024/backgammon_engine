@@ -99,10 +99,9 @@ export const Sandbox: React.FC = () => {
         device: "N/A",
         history: []
     });
-
     const [diceInput, setDiceInput] = useState<string>("3,1");
+    const [evalResult, setEvalResult] = useState<{ equity: number, win_prob: number } | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
-    const [msg, setMsg] = useState<string>("");
 
     // --- API SYNC ---
     const fetchState = async () => {
@@ -152,6 +151,19 @@ export const Sandbox: React.FC = () => {
             }
         } catch (e) {
             alert("Invalid Format. Use '3,1' or '6,6'");
+        }
+    };
+
+    const handleEvaluate = async () => {
+        setIsLoading(true);
+        try {
+            const res = await axios.post(`${API_URL}/evaluate`);
+            setEvalResult(res.data);
+        } catch (e) {
+            console.error(e);
+            alert("Evaluation Failed");
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -354,6 +366,20 @@ export const Sandbox: React.FC = () => {
                         </button>
                     </div>
                 </div>
+
+                <button
+                    onClick={handleEvaluate}
+                    disabled={isLoading}
+                    style={{ padding: '10px', backgroundColor: '#8e44ad', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', marginBottom: '10px', fontWeight: 'bold' }}>
+                    ⚖️ Evaluate Win Chance
+                </button>
+
+                {evalResult && (
+                    <div style={{ backgroundColor: '#2c3e50', color: '#f1c40f', padding: '10px', borderRadius: '4px', marginBottom: '10px', fontSize: '0.9em' }}>
+                        <div>Equity: {evalResult.equity.toFixed(3)}</div>
+                        <div><b>Win Probability: {evalResult.win_prob.toFixed(1)}%</b></div>
+                    </div>
+                )}
 
                 <div style={{ backgroundColor: '#222', color: '#0f0', padding: '10px', borderRadius: '4px', fontSize: '0.85em', fontFamily: 'monospace', minHeight: '40px', wordBreak: 'break-word' }}>
                     {gameState.history.length > 0 ? gameState.history[gameState.history.length - 1] : "Waiting for move..."}
