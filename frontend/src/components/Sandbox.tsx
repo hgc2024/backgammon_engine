@@ -26,13 +26,13 @@ const API_URL = "http://localhost:8000";
 interface BearOffProps {
     owner: string;
     count: number;
-    onDrop: () => void;
+    onDrop: (item: any) => void;
 }
 
 const SandboxBearOffZone: React.FC<BearOffProps> = ({ owner, count, onDrop }) => {
     const [{ isOver }, drop] = useDrop(() => ({
         accept: 'CHECKER',
-        drop: () => onDrop(),
+        drop: (item: { pointIndex: any }) => onDrop(item),
         collect: (monitor) => ({
             isOver: !!monitor.isOver(),
         }),
@@ -57,7 +57,7 @@ const SandboxBearOffZone: React.FC<BearOffProps> = ({ owner, count, onDrop }) =>
 // --- Sub-Component for Bar Drop (Drag to Bar) ---
 interface BarZoneProps {
     color: number; // 1 for Player, -1 for CPU
-    onDrop: () => void;
+    onDrop: (item: any) => void;
     children: React.ReactNode;
 }
 
@@ -66,7 +66,7 @@ const SandboxBarZoneWrapper: React.FC<BarZoneProps> = ({ color, onDrop, children
         accept: 'CHECKER',
         // Allow drop if dragging SAME color
         canDrop: (item: { color: number }) => item.color === color,
-        drop: () => onDrop(),
+        drop: (item: any) => onDrop(item),
         collect: (monitor) => ({
             isOver: !!monitor.isOver(),
             canDrop: !!monitor.canDrop(),
@@ -100,6 +100,7 @@ export const Sandbox: React.FC = () => {
         history: []
     });
     const [diceInput, setDiceInput] = useState<string>("3,1");
+    const [aiDepth, setAiDepth] = useState<number>(2);
     const [evalResult, setEvalResult] = useState<{ equity: number, win_prob: number } | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
 
@@ -170,7 +171,7 @@ export const Sandbox: React.FC = () => {
     const triggerAI = async () => {
         setIsLoading(true);
         try {
-            await axios.post(`${API_URL}/ai-move`, {});
+            await axios.post(`${API_URL}/ai-move`, { depth: aiDepth });
             await fetchState();
         } catch (e) {
             console.error(e);
@@ -305,19 +306,11 @@ export const Sandbox: React.FC = () => {
         <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'sans-serif', backgroundColor: '#eef1f5', color: '#1a1a1a' }}>
 
             {/* --- EDITOR SIDEBAR --- */}
-            <div style={{ width: '300px', backgroundColor: '#333', color: '#fff', padding: '20px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ width: '300px', backgroundColor: '#333', color: '#fff', padding: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <h2 style={{ borderBottom: '1px solid #555', paddingBottom: '10px' }}>Sandbox Mode</h2>
 
-                <div style={{ fontSize: '0.9em', color: '#aaa' }}>
-                    <b>How to Edit:</b>
-                    <ul style={{ paddingLeft: '20px', marginTop: '5px' }}>
-                        <li>Drag & Drop freely</li>
-                        <li><b>L-Click</b> Point: Add White</li>
-                        <li><b>R-Click</b> Point: Add Red</li>
-                        <li><b>Ctrl+Click</b>: Remove from Board</li>
-                        <li><b>L-Click</b> Bar/Off: Add/Inc</li>
-                        <li><b>R-Click</b> Bar/Off: Remove/Dec</li>
-                    </ul>
+                <div style={{ fontSize: '0.8em', color: '#aaa', lineHeight: '1.4' }}>
+                    <b>Controls:</b> Drag to Move. L-Click: Add White. R-Click: Add Red. Ctrl+Click: Remove.
                 </div>
 
                 {/* Validation Status */}
@@ -343,57 +336,78 @@ export const Sandbox: React.FC = () => {
                     );
                 })()}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#444', padding: '10px', borderRadius: '4px' }}>
-                    <label>Dice Override (d1, d2)</label>
-                    <div style={{ display: 'flex', gap: '5px' }}>
-                        <input value={diceInput} onChange={e => setDiceInput(e.target.value)} style={{ flex: 1, padding: 5 }} />
-                        <button onClick={handleSetDice} style={{ cursor: 'pointer' }}>Set</button>
-                    </div>
-                </div>
+                {/* --- PRIMARY ACTIONS --- */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                    <button onClick={triggerAI} disabled={isLoading} style={{ padding: '10px', backgroundColor: '#3498db', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', fontSize: '1.05em' }}>
+                        {isLoading ? "Thinking..." : "▶ Trigger AI Move"}
+                    </button>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#444', padding: '10px', borderRadius: '4px' }}>
-                    <label>Current Turn</label>
                     <div style={{ display: 'flex', gap: '5px' }}>
-                        <button
-                            onClick={() => pushState({ ...gameState, turn: 0 })}
-                            style={{ flex: 1, backgroundColor: gameState.turn === 0 ? '#2ecc71' : '#555', border: 'none', padding: 8, color: 'white', cursor: 'pointer' }}>
-                            You (White)
+                        <button onClick={resetStandard} style={{ flex: 1, padding: '5px', backgroundColor: '#7f8c8d', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85em' }}>
+                            Reset Std
                         </button>
-                        <button
-                            onClick={() => pushState({ ...gameState, turn: 1 })}
-                            style={{ flex: 1, backgroundColor: gameState.turn === 1 ? '#e74c3c' : '#555', border: 'none', padding: 8, color: 'white', cursor: 'pointer' }}>
-                            CPU (Red)
+                        <button onClick={clearBoard} style={{ flex: 1, padding: '5px', backgroundColor: '#c0392b', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.85em' }}>
+                            Clear
                         </button>
                     </div>
                 </div>
 
-                <button
-                    onClick={handleEvaluate}
-                    disabled={isLoading}
-                    style={{ padding: '10px', backgroundColor: '#8e44ad', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', marginBottom: '10px', fontWeight: 'bold' }}>
-                    ⚖️ Evaluate Win Chance
-                </button>
+                {/* Compact Control Row: Dice & Turn */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px' }}>
+                    <div style={{ backgroundColor: '#444', padding: '5px', borderRadius: '4px' }}>
+                        <label style={{ fontSize: '0.8em' }}>Dice (d1,d2)</label>
+                        <div style={{ display: 'flex', gap: '2px', marginTop: 2 }}>
+                            <input value={diceInput} onChange={e => setDiceInput(e.target.value)} style={{ width: '100%', padding: '2px 5px' }} />
+                            <button onClick={handleSetDice} style={{ cursor: 'pointer', padding: '0 5px' }}>Set</button>
+                        </div>
+                    </div>
+                    <div style={{ backgroundColor: '#444', padding: '5px', borderRadius: '4px' }}>
+                        <label style={{ fontSize: '0.8em' }}>Turn</label>
+                        <div style={{ display: 'flex', gap: '2px', marginTop: 2 }}>
+                            <button onClick={() => pushState({ ...gameState, turn: 0 })}
+                                style={{ flex: 1, backgroundColor: gameState.turn === 0 ? '#2ecc71' : '#555', border: 'none', padding: '4px', fontSize: '0.8em', color: 'white', cursor: 'pointer' }}>
+                                P0
+                            </button>
+                            <button onClick={() => pushState({ ...gameState, turn: 1 })}
+                                style={{ flex: 1, backgroundColor: gameState.turn === 1 ? '#e74c3c' : '#555', border: 'none', padding: '4px', fontSize: '0.8em', color: 'white', cursor: 'pointer' }}>
+                                CPU
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '5px' }}>
+                    <button
+                        onClick={handleEvaluate}
+                        disabled={isLoading}
+                        style={{ flex: 2, padding: '8px', backgroundColor: '#8e44ad', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>
+                        ⚖️ Eval
+                    </button>
+                    <select
+                        value={aiDepth}
+                        onChange={(e) => setAiDepth(Number(e.target.value))}
+                        style={{ flex: 3, padding: '5px', borderRadius: '4px', border: 'none', backgroundColor: '#555', color: 'white' }}
+                    >
+                        <option value={1}>1-Ply</option>
+                        <option value={2}>2-Ply</option>
+                        <option value={3}>3-Ply</option>
+                    </select>
+                </div>
+
+
 
                 {evalResult && (
-                    <div style={{ backgroundColor: '#2c3e50', color: '#f1c40f', padding: '10px', borderRadius: '4px', marginBottom: '10px', fontSize: '0.9em' }}>
-                        <div>Equity: {evalResult.equity.toFixed(3)}</div>
-                        <div><b>Win Probability: {evalResult.win_prob.toFixed(1)}%</b></div>
+                    <div style={{ backgroundColor: '#2c3e50', color: '#f1c40f', padding: '5px', borderRadius: '4px', fontSize: '0.85em', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Eq: {evalResult.equity.toFixed(2)}</span>
+                        <b>Win: {evalResult.win_prob.toFixed(1)}%</b>
                     </div>
                 )}
 
-                <div style={{ backgroundColor: '#222', color: '#0f0', padding: '10px', borderRadius: '4px', fontSize: '0.85em', fontFamily: 'monospace', minHeight: '40px', wordBreak: 'break-word' }}>
-                    {gameState.history.length > 0 ? gameState.history[gameState.history.length - 1] : "Waiting for move..."}
+                <div style={{ backgroundColor: '#222', color: '#0f0', padding: '5px', borderRadius: '4px', fontSize: '0.8em', fontFamily: 'monospace', height: '40px', overflowY: 'auto', whiteSpace: 'pre-wrap', lineHeight: '1.2' }}>
+                    {gameState.history.length > 0 ? gameState.history[gameState.history.length - 1] : "Waiting..."}
                 </div>
 
-                <button onClick={triggerAI} disabled={isLoading} style={{ padding: '15px', backgroundColor: '#3498db', color: 'white', border: 'none', borderRadius: '4px', fontWeight: 'bold', fontSize: '1.1em', cursor: 'pointer' }}>
-                    {isLoading ? "Thinking..." : "▶ Trigger AI"}
-                </button>
-
-                <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    <button onClick={clearBoard} style={{ padding: '10px', backgroundColor: '#e67e22', border: 'none', color: 'white', cursor: 'pointer' }}>Clear Board</button>
-                    <button onClick={resetStandard} style={{ padding: '10px', backgroundColor: '#c0392b', border: 'none', color: 'white', cursor: 'pointer' }}>Reset to Standard</button>
-                </div>
-
+                <div style={{ marginTop: 'auto' }}></div>
             </div>
 
             {/* --- BOARD AREA (Simplified) --- */}
@@ -436,7 +450,7 @@ export const Sandbox: React.FC = () => {
                                 }
                             }}
                         >
-                            <SandboxBarZoneWrapper color={1} onDrop={() => handleFreeMove('bar', 'bar')}>
+                            <SandboxBarZoneWrapper color={1} onDrop={(item) => handleFreeMove(item.pointIndex, 'bar')}>
                                 <Checker color={1} count={gameState.bar[0]} pointIndex="bar" canDrag={true} />
                             </SandboxBarZoneWrapper>
                         </div>
@@ -453,7 +467,7 @@ export const Sandbox: React.FC = () => {
                                 }
                             }}
                         >
-                            <SandboxBarZoneWrapper color={-1} onDrop={() => handleFreeMove('bar_cpu', 'bar')}>
+                            <SandboxBarZoneWrapper color={-1} onDrop={(item) => handleFreeMove(item.pointIndex, 'bar')}>
                                 <Checker color={-1} count={gameState.bar[1]} pointIndex="bar_cpu" canDrag={true} />
                             </SandboxBarZoneWrapper>
                         </div>
@@ -486,13 +500,13 @@ export const Sandbox: React.FC = () => {
                             onClick={() => { const newState = { ...gameState }; newState.off[1]++; pushState(newState); }}
                             onContextMenu={(e) => { e.preventDefault(); if (gameState.off[1] > 0) { const newState = { ...gameState }; newState.off[1]--; pushState(newState); } }}
                         >
-                            <SandboxBearOffZone owner="CPU" count={gameState.off[1]} onDrop={() => handleFreeMove('bar_cpu', 'off')} />
+                            <SandboxBearOffZone owner="CPU" count={gameState.off[1]} onDrop={(item) => handleFreeMove(item.pointIndex, 'off')} />
                         </div>
                         <div style={{ flex: 1, display: 'flex', border: '2px solid #8d6e63', background: '#fff8e1', cursor: 'pointer' }}
                             onClick={() => { const newState = { ...gameState }; newState.off[0]++; pushState(newState); }}
                             onContextMenu={(e) => { e.preventDefault(); if (gameState.off[0] > 0) { const newState = { ...gameState }; newState.off[0]--; pushState(newState); } }}
                         >
-                            <SandboxBearOffZone owner="You" count={gameState.off[0]} onDrop={() => handleFreeMove('bar', 'off')} />
+                            <SandboxBearOffZone owner="You" count={gameState.off[0]} onDrop={(item) => handleFreeMove(item.pointIndex, 'off')} />
                         </div>
                     </div>
 

@@ -80,14 +80,40 @@ class ExpectiminimaxAgent:
 
     def get_state_value(self, game, style="aggressive"):
         """
-        Evaluates the current state of the game from the current player's perspective.
-        Returns the raw equity value.
+        Evaluates the current state.
+        Returns dict with "equity" and "win_prob" (0.0-1.0).
         """
-        # Evaluate from the perspective of the current turn player
-        val_tensor = self._evaluate_states([(game.board, game.bar, game.off)], game.turn, game.turn, style, game.score)
-        if len(val_tensor) > 0:
-            return val_tensor.item()
-        return 0.0
+        # Manual Obs Construction to access Probs
+        p = game.turn
+        scores = game.score if game.score else [0, 0]
+        
+        if self.is_gen5:
+             obs = get_obs_gen5(game.board, game.bar, game.off, p, scores, 1, p)
+        else:
+             obs = get_obs_gen4(game.board, game.bar, game.off, p, [0,0], 1, 1)
+             
+        t = torch.tensor(obs[None, :], dtype=torch.float32).to(self.device)
+        
+        with torch.no_grad():
+            logits, _ = self.net(t)
+            probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
+            
+            # Equity
+            if style == "safe":
+                 weights = np.array([-4.0, -3.0, -2.0, 1.0, 1.1, 1.2])
+            else:
+                 weights = np.array([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0])
+            
+            equity = np.sum(probs * weights)
+            
+            # Win Prob: Sum of [Win(3), Gammon(4), Backgammon(5)]
+            # Probs are [LoseBG, LoseG, Lose, Win, WinG, WinBG]
+            win_prob = np.sum(probs[3:]) 
+            
+            return {
+                "equity": float(equity),
+                "win_prob": float(win_prob)
+            }
 
     def get_action(self, game, roll=None, depth=1, style="aggressive"):
         """

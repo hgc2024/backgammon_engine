@@ -174,8 +174,11 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
     if not agent:
         return {"error": "No Agent Loaded"}
     
-    depth = 3
-    style = "aggressive"
+    # Use provided depth/style if available, else default
+    depth = req.depth if req else 2
+    style = req.style if req else "aggressive"
+    
+    print(f"AI Search: Depth={depth}, Style={style}")
     
     # 1. Roll if needed
     if game.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
@@ -247,16 +250,24 @@ class SetDiceRequest(BaseModel):
 
 @app.post("/evaluate")
 def evaluate_state():
+    # Trigger Reload
     if not agent:
         return {"error": "No Agent Loaded"}
     
     # Use current game state
-    val = agent.get_state_value(game, style="aggressive")
+    # get_state_value now returns { "equity", "win_prob" }
+    res = agent.get_state_value(game, style="aggressive")
     
-    # Rough Win % Estimate: (Eq + 1) / 2
-    # Clamped between 0% and 100%
-    win_est = (val + 1.0) / 2.0
-    win_est = max(0.0, min(1.0, win_est)) * 100
+    val = res["equity"]
+    win_est = res["win_prob"] * 100 # Convert to %
+    
+    # Normalize to PLAYER Perspective (White/0)
+    # If it is CPU's turn (1), val is CPU's equity.
+    # Player Equity = -CPU Equity
+    # Player Win % = 100 - CPU Win %
+    if game.turn == 1:
+        val = -val
+        win_est = 100.0 - win_est
     
     return {
         "equity": val,
