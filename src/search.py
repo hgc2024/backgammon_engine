@@ -115,27 +115,114 @@ class ExpectiminimaxAgent:
                 "win_prob": float(win_prob)
             }
 
-    def get_action(self, game, roll=None, depth=1, style="aggressive"):
+    def get_action(self, game, depth=2, style="aggressive"):
         """
         Returns the best action index from game.legal_moves.
-        Depth 1 = Greedy.
-        Depth 2 = Star-Minimax.
-        Style = 'aggressive' (Money Play) or 'safe' (Risk Averse).
         """
         moves = game.legal_moves
         if not moves:
             return None
-            
-        # Optimization: If only one move is possible, don't search.
         if len(moves) == 1:
             return 0
             
+        # --- HEURISTIC OVERRIDE FOR PURE RACES ---
+        # If no contact, use simple "Max Off, Min Pips" logic.
+        if self._is_pure_race(game):
+            # print("DEBUG: Using Race Heuristic")
+            return self._run_race_heuristic(game, moves)
+
         if depth == 1:
             return self._run_1ply(game, moves, style)
         elif depth == 2:
             return self._run_2ply(game, moves, style)
         elif depth >= 3:
             return self._run_3ply_beam(game, moves, style)
+
+    def _is_pure_race(self, game):
+        # Check if P0 (White) and P1 (Red) have passed each other.
+        b = game.board
+        p0_inds = [i for i, c in enumerate(b) if c > 0]
+        p1_inds = [i for i, c in enumerate(b) if c < 0]
+        
+        # If any on bar, not a pure race (usually) unless other has cleared?
+        # Actually if on bar, you are at 24 or -1.
+        if game.bar[0] > 0 or game.bar[1] > 0:
+            # Technically could be race if opponent is all home, but simpler to say "No" if bar
+            return False
+            
+        if not p0_inds or not p1_inds:
+            return True # Game over essentially
+            
+        # P0 moves High -> Low (23->0).
+        # P1 moves Low -> High (0->23).
+        # Race if max(P0) < min(P1).
+        return max(p0_inds) < min(p1_inds)
+
+    def _run_race_heuristic(self, game, moves):
+        best_idx = 0
+        best_score = -float('inf')
+        
+        # Perspective
+        player = game.turn
+        
+        for i, seq in enumerate(moves):
+            # Sim
+            # game.get_afterstate returns (board, bar, off)
+            b, ba, o = game.get_afterstate(seq)
+            
+            # Score: Maximize (Off * 1000) - Pips
+            # 1 checker off is worth 1000 pips. Huge.
+            
+            my_off = o[player]
+            
+            # Calc Pips
+            pips = 0
+            if player == 0:
+                 pips += np.sum(np.maximum(b, 0) * (np.arange(24) + 1))
+            else:
+                 pips += np.sum(np.abs(np.minimum(b, 0)) * (24 - np.arange(24)))
+            
+            # Negative pips because we want to Minimize remaining.
+            # Tie-Breaker: Minimize Checkers on Board (e.g. 1 checker on 2-pt > 2 checkers on 1-pt).
+            # 1 checker off (10000) >> 1 pip (1) >> 1 checker count (0.01)
+            
+            # Count Checkers on board (excluding off)
+            checkers_on_board = 15 - my_off 
+            
+            score = (my_off * 10000) - pips - (checkers_on_board * 0.1)
+            # In pure race, safe is usually irrelevant unless rolling.
+            # But minimizing blots might prevent unlucky 1-1 variance if forced to leave shot (not possible in pure race).
+            # Actually, just clearing is key.
+            # But "stacking" on higher points vs lower?
+            # User example: 2 on 1-point vs 1 on 2-point.
+            # {1:2} vs {2:1}.
+            # Pips: {1:2} -> 2 pips. {2:1} -> 2 pips.
+            # Off: Same.
+            # Tie.
+            # But {2:1} (1 checker) clears faster.
+            # Add heuristic: "Minimize Checkers On Board"?
+            # Equivalent to Maximize Off.
+            # Add heuristic: "Minimize Max Stack Height"? No.
+            # Add heuristic: "Maximize Checkers on Lower Points"?
+            # i.e. move 6->5 is better than 2->1?
+            # Usually reducing highest stack is good (clearing form back).
+            # But user scenario: 2 checkers on 1-point vs 1 checker on 2-point.
+            # Both have same pips.
+            # Heuristic should prefer 1 checker on 2-point (fewer checkers left).
+            # Oh, {1:2} is 2 checkers. {2:1} is 1 checker.
+            # My logic earlier said {2:1} is 1 checker left.
+            # Wait. {1:2} = 2 checkers at index 1.
+            # {2:1} = 1 checker at index 2.
+            # Maximize Off handles this!
+            # {2:1} means we Bore Off 1 checker.
+            # {1:2} means we Moved 2->1 (Bore Off 0).
+            # So `my_off` score will totally dominate.
+            
+            if score > best_score:
+                best_score = score
+                best_idx = i
+                
+        return best_idx
 
     def _evaluate_states(self, boards, player, perspective_player, style="aggressive", current_score=None):
         """
