@@ -223,7 +223,7 @@ class ExpectiminimaxAgent:
         # If no contact, use simple "Max Off, Min Pips" logic.
         if self.use_race_heuristic and self._is_pure_race(game):
             # print("DEBUG: Using Race Heuristic")
-            return self._run_race_heuristic(game, moves)
+            return self.run_race_heuristic(game, moves)
 
         if depth == 1:
             return self._run_1ply(game, moves, style)
@@ -252,7 +252,7 @@ class ExpectiminimaxAgent:
         # Race if max(P0) < min(P1).
         return max(p0_inds) < min(p1_inds)
 
-    def _run_race_heuristic(self, game, moves):
+    def run_race_heuristic(self, game, moves):
         best_idx = 0
         best_score = -float('inf')
         
@@ -769,4 +769,4 @@ class ExpectiminimaxAgent:
                  weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=self.device)
                  
             values = torch.sum(probs * weights).item()
-        return v
+        return values

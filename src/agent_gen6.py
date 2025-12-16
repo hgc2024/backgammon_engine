@@ -230,6 +230,33 @@ class Gen6Agent:
         
         return ctx
 
+    def _format_move_seq(self, move_seq):
+        """
+        Converts internal move sequence to human-readable format.
+        (11, 14) -> "Point 12 to Point 15"
+        (bar, 5) -> "Bar to Point 6"
+        (20, 'off') -> "Point 21 to Bear Off"
+        """
+        parts = []
+        for start, end in move_seq:
+            # Start
+            if start == 'bar':
+                s_str = "Bar"
+            else:
+                s_str = f"Point {start + 1}"
+            
+            # End
+            if end == 'off':
+                e_str = "Bear Off"
+            elif end == 'bar': # Should not happen as dest
+                e_str = "Bar" 
+            else:
+                e_str = f"Point {end + 1}"
+                
+            parts.append(f"{s_str}->{e_str}")
+            
+        return ", ".join(parts)
+
     def get_action(self, game, depth=2, style="aggressive"):
         """
         Orchestrates the decision.
@@ -294,6 +321,49 @@ class Gen6Agent:
         if not self.is_contact(game):
              self.last_reasoning = "Pure Race detected. Using Gen5 Heuristic (Optimal)."
              return best['index']
+             
+        # 2.5 Auto-Transition to Race Check (Breaking Contact)
+        # If we are ahead in race (lower pip count) and can safely break contact, DO IT.
+        # This overrides Gen5's potential desire to stay back and fight.
+        p0_pip, p1_pip = game.get_pip_counts()
+        me_pip = p0_pip if game.turn == 0 else p1_pip
+        opp_pip = p1_pip if game.turn == 0 else p0_pip
+        
+        if me_pip <= opp_pip:
+            # We are winning/tied race. Look for moves that leave NO contact.
+            transition_moves = []
+            for cand in candidates: # check all top candidates (or all legal?)
+                 # Re-check all legal moves? Or just the good ones?
+                 # Let's check all legal moves to find a "Run" move.
+                 pass
+            
+            # Efficient: Check provided candidates first.
+            for cand in candidates:
+                sim_board, sim_bar, _ = game.get_afterstate(cand['move']) 
+                # Create dummy game to check contact
+                # We can just use static method if we refactor or use self.is_contact logic on board?
+                # self.is_contact(game) -> uses game.board.
+                # Let's duplicate logic for sim_board.
+                
+                # Check CONTACT on sim_board
+                p0_idxs = [i for i, c in enumerate(sim_board) if c > 0]
+                p1_idxs = [i for i, c in enumerate(sim_board) if c < 0]
+                if sim_bar[0] > 0: p0_idxs.append(24)
+                if sim_bar[1] > 0: p1_idxs.append(-1)
+                
+                has_contact = False
+                if p0_idxs and p1_idxs:
+                    has_contact = max(p0_idxs) >= min(p1_idxs)
+                    
+                if not has_contact:
+                    # Found a transition move!
+                    # If this move is found, use Race Heuristic to confirm it's good?
+                    # Or just take it?
+                    # Taking it immediately is the "Forced Transition" logic.
+                    self.last_reasoning = "Race Lead + Safe Transition found. Auto-executing Race Logic."
+                    print("Gen6: Auto-Transition to Race Mode.")
+                    # Use Heuristic to pick BEST transition move if multiple
+                    return self.engine.run_race_heuristic(game, game.legal_moves)
         
         # 3. Dilemma & Hit Detection
         equity_diff = best['equity'] - second['equity']
@@ -336,7 +406,11 @@ class Gen6Agent:
         for i, c in enumerate(candidates[:3]): # Top 3 only
             is_hit = self.check_hit(game, c['move'])
             hit_str = " [HITS OPPONENT]" if is_hit else ""
-            c_text += f"Option {i+1}: Sequence {c['move']}{hit_str} | Equity: {c['equity']:.3f} | Win Prob: {c['win_prob']*100:.1f}%\n"
+            
+            # Format move for human readability
+            formatted_move = self._format_move_seq(c['move'])
+            
+            c_text += f"Option {i+1}: Sequence {formatted_move} (Raw: {c['move']}){hit_str} | Equity: {c['equity']:.3f} | Win Prob: {c['win_prob']*100:.1f}%\n"
             
         prompt = f"""
 You are a Backgammon Grandmaster.
@@ -356,7 +430,7 @@ CONTEXT:
 TASK:
 1. LIST the Candidate Moves provided above.
 2. Briefly analyze the strategic theme.
-3. Compare the pros/cons of Option 1 vs Option 2.
+3. Compare the pros/cons of ALL provided options (Option 1, 2, and 3).
 4. Select the best move number.
 5. Output your decision in this format:
 
@@ -378,20 +452,51 @@ REASONING: [Your explanation]
             
             # Parse Move
             import re
-            match = re.search(r'FINAL_MOVE:\s*\[?(\d)\]?', content)
+            match = re.search(r'FINAL_MOVE[:\*]*\s*\[?(\d)', content, re.IGNORECASE)
             if match:
                 choice_idx = int(match.group(1)) - 1 # 1-based to 0-based
                 if 0 <= choice_idx < len(candidates):
                     # Valid ID
                     rec_idx = candidates[choice_idx]['index']
                     print(f"Gen6: Council overruled/confirmed. Chose Candidate {choice_idx+1}.")
-                    return rec_idx
+                    # Do NOT return yet. Let it fall through to safety check.
+                    final_cand = candidates[choice_idx]
             
             # Fallback if parsing fails
             print("Gen6: Could not parse LLM decision. Defaulting to Gen5 #1.")
-            return best['index']
+            final_cand = best
             
         except Exception as e:
             print(f"Gen6 Error: {e}")
             self.last_reasoning = f"Council unavailable ({str(e)}). Using Gen5 default."
-            return best['index']
+            final_cand = best
+            
+        # --- ROBUST MOVE EXECUTION ---
+        # Find the index of final_cand['move'] in the CURRENT game.legal_moves
+        # This prevents "index drift" or mismatch errors.
+        
+        target_move = final_cand['move']
+        
+        # 1. Exact Match
+        for i, move in enumerate(game.legal_moves):
+            if move == target_move:
+                return i
+                
+        # 2. Semantic Match (Afterstate)
+        # If tuple vs list issues, or order issues.
+        # Check if they lead to same board.
+        target_sig = self.engine.get_state_value(game, depth=0) # Wait, this returns value.
+        # We need signature. 
+        # let's re-calc target signature
+        t_b, t_ba, t_o = game.get_afterstate(target_move)
+        target_sig = (tuple(t_b), tuple(t_ba), tuple(t_o))
+        
+        for i, move in enumerate(game.legal_moves):
+             m_b, m_ba, m_o = game.get_afterstate(move)
+             curr_sig = (tuple(m_b), tuple(m_ba), tuple(m_o))
+             if curr_sig == target_sig:
+                 print(f"Gen6: Exact move match failed, but found semantic match at index {i}.")
+                 return i
+                 
+        print("CRITICAL: Gen6 Choice not found in legal moves. Returning 0 (Safety).")
+        return 0
