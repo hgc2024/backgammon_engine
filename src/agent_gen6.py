@@ -25,32 +25,190 @@ class Gen6Agent:
     def get_state_value(self, game, style="aggressive", depth=2):
         return self.engine.get_state_value(game, style=style, depth=depth)
 
-    def board_to_text(self, game):
-        """Converts board state to natural language description."""
-        p = "You (White/Pos)" if game.turn == 0 else "You (Red/Neg)"
-        opp = "Opponent (Red/Neg)" if game.turn == 0 else "Opponent (White/Pos)"
+    def is_contact(self, game):
+        """
+        Returns True if there is still contact (checkers can hit or block).
+        Returns False if it is a pure race (checkers have passed each other).
         
-        # Board Pips
-        match_score = f"Match Score: You {game.score[game.turn]} - Opponent {game.score[1-game.turn]}"
+        Logic:
+        P0 moves HIGH (23) -> LOW (0). P0 Checkers are at indices P0_idxs.
+        P1 moves LOW (0) -> HIGH (23). P1 Checkers are at indices P1_idxs.
         
-        # Describe Checkers
-        # Simplified for now: just raw board + bar + off in English
-        # Smart: "You have 2 checkers on the 24 point."
+        Contact exists if max(P0_idxs) >= min(P1_idxs).
+        Actually, P0 starts at 23, 13, 8, 6.
+        P1 starts at 0, 11, 16, 18.
+        They cross.
+        Race condition: All P0 checkers are LOWER than all P1 checkers.
+        i.e. max(P0) < min(P1).
+        """
+        p0_idxs = [i for i, c in enumerate(game.board) if c > 0]
+        p1_idxs = [i for i, c in enumerate(game.board) if c < 0]
         
-        desc = f"You are Player {game.turn}. {match_score}.\n"
-        if game.bar[game.turn] > 0:
-            desc += f"You have {game.bar[game.turn]} checkers on the BAR (Must enter).\n"
+        # Add Bar checkers (Bar is "before" start)
+        # P0 Bar: effectively index 24 (needs to enter 23..18) -> Wait.
+        # P0 moves 23->0. Bar enters at 23 (24).
+        # P1 Bar: effectively index -1 (needs to enter 0..5).
         
-        # Points description (Relative to player Home Board)
-        # Player 0 Home: 1-6. Outer: 7-12...
-        # Let's describe crucial features: Primes, Blots, Anchors.
-        # This is complex to do robustly in short code.
-        # Fallback: Provide ASCII diagram!
+        if game.bar[0] > 0: p0_idxs.append(24)
+        if game.bar[1] > 0: p1_idxs.append(-1)
         
-        diagram = game.render_ascii()
-        desc += "Board State:\n" + diagram
-        return desc
+        if not p0_idxs or not p1_idxs:
+            return False # One side bear off completely?
+            
+        return max(p0_idxs) >= min(p1_idxs)
+
+    def analyze_board_features(self, game):
+        """
+        Analyzes board for strategic features:
+        - Primes (Consecutive blocks)
+        - Anchors (Blocks in opponent home)
+        - Blots (Vulnerable single checkers)
+        """
+        features = []
+        board = game.board
+        turn = game.turn
         
+        # 1. Primes
+        # Scan for sequences of 2+ checkers
+        # We look for "made points" (count >= 2) for the current player
+        # A Prime is usually 3+ consecutive points.
+        consecutive = 0
+        prime_start = -1
+        
+        # Iterate indices based on player direction?
+        # Visual board is 0..23.
+        # P0 owns +ve. P1 owns -ve.
+        
+        made_points = []
+        for i in range(24):
+            cnt = board[i]
+            if turn == 0 and cnt >= 2: made_points.append(i)
+            elif turn == 1 and cnt <= -2: made_points.append(i)
+        
+        # Find consecutive
+        # Sort made_points (already sorted by range)
+        current_run = []
+        primes = []
+        for p in made_points:
+            if not current_run:
+                current_run = [p]
+            else:
+                if p == current_run[-1] + 1:
+                    current_run.append(p)
+                else:
+                    if len(current_run) >= 3:
+                        primes.append(current_run)
+                    current_run = [p]
+        if len(current_run) >= 3:
+             primes.append(current_run)
+             
+        for pr in primes:
+            features.append(f"- Strong Prime detected (Length {len(pr)}) from Point {pr[0]+1} to {pr[-1]+1}.")
+            
+        # 2. Anchors
+        # Anchor: Made point in opponent's home board or outer board (defensive).
+        # P0 Home: 0-5. P1 Home: 18-23.
+        # If Turn=0 (P0), Anchor is in P1 home (18-23).
+        # If Turn=1 (P1), Anchor is in P0 home (0-5).
+        
+        anchors = []
+        if turn == 0:
+            # Check 18-23
+            for i in range(18, 24):
+                if board[i] >= 2: anchors.append(i)
+        else:
+            # Check 0-5
+            for i in range(0, 6):
+                if board[i] <= -2: anchors.append(i)
+                
+        if anchors:
+            pts = ", ".join([str(x+1) for x in anchors])
+            features.append(f"- Defensive Anchor(s) held at Point(s) {pts} (Opponent Home Board).")
+            
+        # 3. Blots (Weaknesses)
+        # Single checker.
+        blots = []
+        for i in range(24):
+            cnt = board[i]
+            if turn == 0 and cnt == 1: blots.append(i)
+            elif turn == 1 and cnt == -1: blots.append(i)
+            
+        if blots:
+             pts = ", ".join([str(x+1) for x in blots])
+             features.append(f"- Vulnerable Blots (single checkers) at Point(s) {pts}.")
+             
+        # 4. Traps (Opponent Primes?)
+        # Let's check if opponent has a prime in front of us.
+        # Too complex for quick rule, implied by board state.
+        
+        if not features:
+            return "No salient features (Primes/Anchors) detected."
+            
+        return "\n".join(features)
+
+    def generate_board_desc(self, game):
+        """
+        Generates a detailed natural language description of the board.
+        Includes Pip counts, Bar/Off counts, and explicit point listings.
+        """
+        turn = game.turn # 0 or 1
+        me_color = "White (Pos)" if turn == 0 else "Red (Neg)"
+        opp_color = "Red (Neg)" if turn == 0 else "White (Pos)"
+        
+        # 1. Score & Context
+        # Note: No Doubling Cube in this mode.
+        p_score = game.score[turn]
+        o_score = game.score[1-turn]
+        
+        ctx = f"Match Context:\n- You are {me_color}.\n- Opponent is {opp_color}.\n"
+        ctx += f"- Current Score: You {p_score} vs Opponent {o_score} (Cumulative Series).\n"
+        ctx += "- Doubling Cube: DISABLED. Play for single wins and gammons only.\n"
+        
+        # 2. Pip Counts
+        p0_pip, p1_pip = game.get_pip_counts()
+        me_pip = p0_pip if turn == 0 else p1_pip
+        opp_pip = p1_pip if turn == 0 else p0_pip
+        
+        ctx += f"- Pip Count: You {me_pip} (Lower is better) vs Opponent {opp_pip}.\n"
+        ctx += f"  (You are {'ahead' if me_pip < opp_pip else 'behind'} in the race by {abs(me_pip - opp_pip)} pips).\n"
+        
+        # 3. Bar & Off
+        me_bar = game.bar[turn]
+        opp_bar = game.bar[1-turn]
+        me_off = game.off[turn]
+        opp_off = game.off[1-turn]
+        
+        ctx += f"- Checkers on Bar: You {me_bar}, Opponent {opp_bar}.\n"
+        ctx += f"- Checkers Borne Off: You {me_off}, Opponent {opp_off}.\n\n"
+        
+        # 4. Strategic Features
+        feats = self.analyze_board_features(game)
+        ctx += "Key Strategic Features:\n" + feats + "\n\n"
+        
+        # 5. Detailed Board Position
+        ctx += "Full Board Position (Standard Index 0-23):\n"
+        points_desc = []
+        for i in range(24):
+            cnt = game.board[i]
+            if cnt == 0: continue
+            
+            # Identify owner
+            owner = 0 if cnt > 0 else 1
+            count = abs(cnt)
+            owner_str = "You" if owner == turn else "Opponent"
+            
+            # Point Number relative to standard board
+            # Let's just use raw index for clarity, or standard notation?
+            # Standard notation depends on perspective.
+            # Let's use Raw Index (0-23) but explain: 
+            # "Point 0 (White Home)" ... "Point 23 (White Outer)"
+            pt_label = f"Point {i+1}"
+            points_desc.append(f"  - {pt_label}: {count} {owner_str} checkers")
+            
+        ctx += "\n".join(points_desc)
+        
+        return ctx
+
     def get_action(self, game, depth=2, style="aggressive"):
         """
         Orchestrates the decision.
@@ -67,16 +225,49 @@ class Gen6Agent:
         if not candidates:
             return 0 # Should not happen if legal_moves exist
             
+        # Deduplicate Transpositional Moves (Mirrors)
+        # e.g., ((0,1), (1,2)) is effectively same as ((1,2), (0,1))
+        # We assume standard moves are commutative in effect.
+        unique_candidates = []
+        seen_moves = set()
+        
+        # Helper to safely sort mixed int/str (bar/off)
+        def move_sort_key(m):
+            # m is (start, end)
+            s, e = m
+            # Map 'bar' -> 100, 'off' -> 200 (arbitrary large ints for sorting)
+            s_val = 100 if s == 'bar' else s
+            e_val = 200 if e == 'off' else e
+            return (s_val, e_val)
+        
+        for cand in candidates:
+            # Sort the atomic moves within the sequence to create a canonical signature
+            # cand['move'] is list of (start, end).
+            # We use a custom key because 'off' (str) cannot be compared to ints in Python 3.
+            move_sig = tuple(sorted(cand['move'], key=move_sort_key))
+            
+            if move_sig not in seen_moves:
+                seen_moves.add(move_sig)
+                unique_candidates.append(cand)
+                
+        candidates = unique_candidates
+        
         best = candidates[0]
         
-        # If only 1 move, return it
+        # If only 1 move after deduplication, return it
         if len(candidates) == 1:
-            self.last_reasoning = "Only one legal move."
+            self.last_reasoning = "Only one distinct legal move."
             return best['index']
             
         second = candidates[1]
         
-        # 2. Dilemma Check
+        # 2. Race Condition Check
+        # If pure race, use Gen5 (Calculated Heuristic is superior to LLM).
+        if not self.is_contact(game):
+             self.last_reasoning = "Pure Race detected. Using Gen5 Heuristic (Optimal)."
+             return best['index']
+        
+        # 3. Dilemma Check
         equity_diff = best['equity'] - second['equity']
         
         is_dilemma = equity_diff < self.dilemma_threshold
@@ -86,13 +277,13 @@ class Gen6Agent:
             self.last_reasoning = f"Standard Gen5 Move. Equity Delta ({equity_diff:.3f}) > Threshold."
             return best['index']
             
-        # 3. The Council Convenes (Slow Path)
+        # 4. The Council Convenes (Slow Path)
         # Construct Prompt
-        board_desc = self.board_to_text(game)
+        board_desc = self.generate_board_desc(game)
         
-        c_text = "Candidate Moves (analyzed by Computer Engine):\n"
+        c_text = "CANDIDATE MOVES (Analyzed by Gen5 Engine):\n"
         for i, c in enumerate(candidates[:3]): # Top 3 only
-            c_text += f"{i+1}. Move sequence: {c['move']}. Equity: {c['equity']:.3f}. Win Prob: {c['win_prob']*100:.1f}%.\n"
+            c_text += f"Option {i+1}: Sequence {c['move']} | Equity: {c['equity']:.3f} | Win Prob: {c['win_prob']*100:.1f}%\n"
             
         prompt = f"""
 You are a Backgammon Grandmaster.
@@ -102,14 +293,19 @@ Analyze the following position and choose the best move from the candidates prov
 
 {c_text}
 
-The computer evaluation considers these moves very close (Equity difference of {equity_diff:.3f}).
-Your goal is to use strategic reasoning (safety vs aggression, structure, gammon risk, match score) to break the tie.
+CONTEXT:
+- The computer evaluation considers these moves very close (Equity difference of {equity_diff:.3f}).
+- There is NO DOUBLING CUBE. This is a match played for total points.
+- Your goal is to maximize your long-term winning chances.
+- Pay attention to "Key Strategic Features" (Primes, Anchors, Blots) listed above. Avoid getting trapped behind primes if behind in race.
 
-Task:
-1. Briefly analyze the strategic theme (Prime, Race, Blitz, Holding Game).
-2. Compare Move 1 and Move 2 (and 3 if relevant).
-3. Select the best move number (1, 2, or 3).
-4. Output your decision in this format:
+TASK:
+1. LIST the Candidate Moves provided above.
+2. Briefly analyze the strategic theme.
+3. Compare the pros/cons of Option 1 vs Option 2.
+4. Select the best move number.
+5. Output your decision in this format:
+
 FINAL_MOVE: [Number]
 REASONING: [Your explanation]
 """
@@ -121,10 +317,12 @@ REASONING: [Your explanation]
             ])
             
             content = response['message']['content']
-            self.last_reasoning = content
+            
+            # Prepend context to reasoning so user sees it
+            display_reasoning = f"--- COUNCIL SESSION ---\n{c_text}\n--- MISTRAL OPINION ---\n{content}"
+            self.last_reasoning = display_reasoning
             
             # Parse Move
-            # Look for FINAL_MOVE: [N]
             import re
             match = re.search(r'FINAL_MOVE:\s*\[?(\d)\]?', content)
             if match:
