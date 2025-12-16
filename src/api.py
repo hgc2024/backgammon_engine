@@ -71,7 +71,7 @@ def get_state_dict():
         "cube_owner": game.cube_owner,
         "legal_moves": game.legal_moves, 
         "phase": game.phase.name,
-        "winner": -1 if game.phase != GamePhase.GAME_OVER else (0 if game.score[0] > game.score[1] else 1),
+        "winner": game.winner,
         "score": game.score,
         "pips": [int(x) for x in game.get_pip_counts()], 
         "device": str(agent.device) if agent else "N/A",

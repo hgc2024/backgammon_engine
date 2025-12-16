@@ -139,6 +139,8 @@ class BackgammonGame:
                 winner = 1 - self.turn
                 reward_val = self.cube_value # No gammon on drop
                 self.score[winner] += reward_val
+                self.phase = GamePhase.GAME_OVER
+                self.winner = winner
                 return reward_val, winner, True
                 
         elif self.phase == GamePhase.DECIDE_MOVE:
@@ -160,6 +162,7 @@ class BackgammonGame:
                 if winner != -1:
                     self.score[winner] += pts
                     self.phase = GamePhase.GAME_OVER
+                    self.winner = winner
                     return pts, winner, True
                     
                 # Switch Turn
@@ -276,6 +279,7 @@ class BackgammonGame:
         if winner != -1:
             self.score[winner] += pts
             self.phase = GamePhase.GAME_OVER
+            self.winner = winner
             return pts, winner, True
             
         # 4. Check Turn End
@@ -795,6 +799,7 @@ class BackgammonGame:
         self.phase = GamePhase.DECIDE_CUBE_OR_ROLL
         self.dice = []
         self.legal_moves = []
+        self.winner = -1 # Explicit winner tracking
 
     def render_ascii(self) -> str:
         """
