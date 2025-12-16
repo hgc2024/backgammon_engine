@@ -4,7 +4,7 @@ import numpy as np
 from src.search import ExpectiminimaxAgent
 
 class Gen6Agent:
-    def __init__(self, engine: ExpectiminimaxAgent, model_name="mistral"):
+    def __init__(self, engine: ExpectiminimaxAgent, model_name="llama3.2"):
         self.engine = engine
         self.model_name = model_name
         self.last_reasoning = ""

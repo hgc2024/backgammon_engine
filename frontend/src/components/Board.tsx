@@ -81,6 +81,7 @@ export const Board: React.FC = () => {
     const [message, setMessage] = useState<string>("");
     const [startOption, setStartOption] = useState<number>(-1); // -1: Random, 0: Player, 1: CPU
     const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
+    const [showReasoning, setShowReasoning] = useState<boolean>(false);
 
     // --- API HELPERS ---
     const fetchState = async () => {
@@ -240,10 +241,18 @@ export const Board: React.FC = () => {
                 {/* Gen6 Analysis in Sidebar */}
                 {gameState.last_thought && (
                     <div style={{ marginBottom: '10px', backgroundColor: '#fff', borderLeft: '5px solid #8e44ad', padding: '10px', borderRadius: '4px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
-                        <div style={{ fontWeight: 'bold', color: '#8e44ad', marginBottom: '5px', textTransform: 'uppercase', fontSize: '0.75em' }}>Gen6 Analysis</div>
-                        <div style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.8em', color: '#555', maxHeight: '200px', overflowY: 'auto' }}>
-                            {gameState.last_thought}
+                        <div
+                            onClick={() => setShowReasoning(!showReasoning)}
+                            style={{ fontWeight: 'bold', color: '#8e44ad', marginBottom: '5px', textTransform: 'uppercase', fontSize: '0.75em', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                        >
+                            <span>Gen6 Analysis</span>
+                            <span>{showReasoning ? '▼' : '▶'}</span>
                         </div>
+                        {showReasoning && (
+                            <div style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.8em', color: '#555', maxHeight: '300px', overflowY: 'auto', borderTop: '1px solid #eee', paddingTop: '5px' }}>
+                                {gameState.last_thought}
+                            </div>
+                        )}
                     </div>
                 )}
 
