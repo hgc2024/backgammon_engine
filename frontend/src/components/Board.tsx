@@ -79,6 +79,7 @@ export const Board: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [message, setMessage] = useState<string>("");
     const [startOption, setStartOption] = useState<number>(-1); // -1: Random, 0: Player, 1: CPU
+    const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
 
     // --- API HELPERS ---
     const fetchState = async () => {
@@ -228,8 +229,8 @@ export const Board: React.FC = () => {
 
                     {/* Match Controls */}
                     <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                        <button onClick={() => handleStart(startOption, false)} className="btn-primary" disabled={isLoading} style={{ flex: 1, fontSize: '0.85em', padding: '10px' }}>Next Round</button>
-                        <button onClick={() => handleStart(startOption, true)} className="btn-secondary" disabled={isLoading} style={{ flex: 1, fontSize: '0.85em', padding: '10px' }}>Reset Match</button>
+                        <button onClick={() => handleStart(startOption, false)} className="btn-primary" disabled={isLoading || !isGameOver} style={{ flex: 1, fontSize: '0.85em', padding: '10px', opacity: (isLoading || !isGameOver) ? 0.5 : 1, cursor: (isLoading || !isGameOver) ? 'not-allowed' : 'pointer' }} title={!isGameOver ? "Finish current game first" : "Start next game"}>Next Round</button>
+                        <button onClick={() => setShowResetConfirm(true)} className="btn-secondary" disabled={isLoading} style={{ flex: 1, fontSize: '0.85em', padding: '10px' }}>Reset Match</button>
                     </div>
                 </div>
 
@@ -371,6 +372,20 @@ export const Board: React.FC = () => {
 
                 button:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none !important; transform: none !important; }
             `}</style>
+
+            {/* Confirmation Modal */}
+            {showResetConfirm && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                    <div style={{ backgroundColor: '#2c3e50', padding: '25px', borderRadius: '8px', boxShadow: '0 5px 15px rgba(0,0,0,0.3)', width: '300px', textAlign: 'center', color: 'white' }}>
+                        <h3 style={{ marginTop: 0, color: '#ecf0f1' }}>Reset Match?</h3>
+                        <p style={{ color: '#bdc3c7', fontSize: '0.9em', marginBottom: '20px' }}>Are you sure you want to wipe the score and start over? This cannot be undone.</p>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button onClick={() => { handleStart(startOption, true); setShowResetConfirm(false); }} className="btn-red" style={{ flex: 1, fontSize: '0.9em' }}>Yes, Reset</button>
+                            <button onClick={() => setShowResetConfirm(false)} className="btn-secondary" style={{ flex: 1, fontSize: '0.9em', backgroundColor: '#7f8c8d' }}>Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
