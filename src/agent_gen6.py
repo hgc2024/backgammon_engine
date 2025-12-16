@@ -453,6 +453,9 @@ REASONING: [Your explanation]
             # Parse Move
             import re
             match = re.search(r'FINAL_MOVE[:\*]*\s*\[?(\d)', content, re.IGNORECASE)
+            
+            final_cand = None
+            
             if match:
                 choice_idx = int(match.group(1)) - 1 # 1-based to 0-based
                 if 0 <= choice_idx < len(candidates):
@@ -463,8 +466,9 @@ REASONING: [Your explanation]
                     final_cand = candidates[choice_idx]
             
             # Fallback if parsing fails
-            print("Gen6: Could not parse LLM decision. Defaulting to Gen5 #1.")
-            final_cand = best
+            if final_cand is None:
+                print("Gen6: Could not parse LLM decision. Defaulting to Gen5 #1.")
+                final_cand = best
             
         except Exception as e:
             print(f"Gen6 Error: {e}")
