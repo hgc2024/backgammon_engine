@@ -405,7 +405,7 @@ class ExpectiminimaxAgent:
             # Weights: LoseBG, LoseG, Lose, Win, WinG, WinBG
             # Normal: [-3, -2, -1, ...]
             # Desperation: [-20, -10, -1, 1, 1, 1]
-            d_weights = torch.tensor([-20.0, -10.0, -1.0, 1.0, 1.1, 1.2], device=self.device)
+            d_weights = torch.tensor([-20.0, -10.0, -1.0, 1.0, 1.1, 1.2], device=self.device, dtype=torch.float32)
             
             # Recalculate base value for desperate states
             d_values = torch.sum(probs[desperation_mask] * d_weights, dim=1)
@@ -423,8 +423,8 @@ class ExpectiminimaxAgent:
             # Combine
             d_total = d_values + saved_gammon_bonus - d_pip_penalties
             
-            # Apply back to values
-            values[desperation_mask] = d_total
+            # Apply back to values (Cast to match values dtype just in case)
+            values[desperation_mask] = d_total.to(dtype=values.dtype)
 
         return values, win_probs
 
@@ -693,10 +693,12 @@ class ExpectiminimaxAgent:
         for i, val in enumerate(values_1ply.cpu().numpy()):
             scored_moves.append((val, i, moves[i]))
             
-        # Minimize Opponent Equity
         scored_moves.sort(key=lambda x: x[0])
         
-        TOP_K = 5
+        # INCREASED BEAM WIDTH for Gen6
+        # We need more diversity to allow the Council to see alternative strategies.
+        # Deduplication will reduce this list significantly.
+        TOP_K = 12
         candidates = scored_moves[:TOP_K]
         
         # --- 2-PLY FULL EVAL ---

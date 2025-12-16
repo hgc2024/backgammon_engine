@@ -262,13 +262,20 @@ class Gen6Agent:
             return (s_val, e_val)
         
         for cand in candidates:
-            # Sort the atomic moves within the sequence to create a canonical signature
-            # cand['move'] is list of (start, end).
-            # We use a custom key because 'off' (str) cannot be compared to ints in Python 3.
-            move_sig = tuple(sorted(cand['move'], key=move_sort_key))
+            # Calculate the resulting state to identify transpositions
+            # Different sequences ((11, 15), (15, 21)) vs ((11, 17), (17, 21)) result in same board.
+            sim_board, sim_bar, sim_off = game.get_afterstate(cand['move'])
             
-            if move_sig not in seen_moves:
-                seen_moves.add(move_sig)
+            # Create a hashable signature of the final state
+            # Convert arrays to tuples for hashing
+            state_sig = (
+                tuple(sim_board), 
+                tuple(sim_bar), 
+                tuple(sim_off)
+            )
+            
+            if state_sig not in seen_moves:
+                seen_moves.add(state_sig)
                 unique_candidates.append(cand)
                 
         candidates = unique_candidates
