@@ -410,7 +410,7 @@ class Gen6Agent:
             # Format move for human readability
             formatted_move = self._format_move_seq(c['move'])
             
-            c_text += f"Option {i+1}: Sequence {formatted_move} (Raw: {c['move']}){hit_str} | Equity: {c['equity']:.3f} | Win Prob: {c['win_prob']*100:.1f}%\n"
+            c_text += f"Option {i+1}: Sequence {formatted_move}{hit_str} | Equity: {c['equity']:.3f} | Win Prob: {c['win_prob']*100:.1f}%\n"
             
         prompt = f"""
 You are a Backgammon Grandmaster.
