@@ -221,8 +221,8 @@ export const Board: React.FC = () => {
                     </div>
 
                     {isGameOver && (
-                        <div style={{ textAlign: 'center', padding: '10px', backgroundColor: '#27ae60', color: 'white', borderRadius: '4px', fontWeight: 'bold' }}>
-                            {gameState.score[0] > gameState.score[1] ? "Game Over - You Won!" : "Game Over - CPU Won!"}
+                        <div style={{ textAlign: 'center', padding: '10px', backgroundColor: gameState.score[0] > gameState.score[1] ? '#27ae60' : '#c0392b', color: 'white', borderRadius: '4px', fontWeight: 'bold' }}>
+                            {gameState.score[0] > gameState.score[1] ? "Game Over - You Won!" : "Game Over - You Lost!"}
                         </div>
                     )}
 
