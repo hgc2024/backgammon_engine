@@ -9,7 +9,12 @@ import copy
 import random
 
 from src.game import BackgammonGame, GamePhase
+from src.game import BackgammonGame, GamePhase
 from src.search import ExpectiminimaxAgent
+try:
+    from src.agent_gen6 import Gen6Agent
+except ImportError:
+    Gen6Agent = None
 
 app = FastAPI()
 
@@ -58,6 +63,7 @@ class AIMoveRequest(BaseModel):
 
 # Track logs
 move_history: List[str] = []
+last_ai_thought: str = ""
 
 def get_state_dict():
     # Convert numpy/enums to JSON friendly
@@ -75,7 +81,9 @@ def get_state_dict():
         "score": game.score,
         "pips": [int(x) for x in game.get_pip_counts()], 
         "device": str(agent.device) if agent else "N/A",
-        "history": move_history
+        "device": str(agent.device) if agent and hasattr(agent, "device") else "N/A",
+        "history": move_history,
+        "last_thought": last_ai_thought
     }
 
 def log_move(msg: str):
@@ -166,8 +174,13 @@ MODEL_PATH = "best_so_far_gen5.pth"
     
 if os.path.exists(MODEL_PATH):
     # Agent will auto-detect Gen 5 vs Gen 4 based on checkpoint keys in search.py
-    agent = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu", use_race_heuristic=True)
-    print(f"Loaded Agent: {MODEL_PATH}")
+    base_engine = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu", use_race_heuristic=True)
+    if Gen6Agent:
+        agent = Gen6Agent(base_engine)
+        print(f"Loaded Gen6 Agent (Council) with base {MODEL_PATH}")
+    else:
+        agent = base_engine
+        print(f"Loaded Standard Agent: {MODEL_PATH}")
 
 @app.post("/ai-move")
 def play_ai_move(req: Optional[AIMoveRequest] = None):
@@ -208,6 +221,14 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
             win_est = max(0.0, min(1.0, win_est)) * 100
             
             game.step(action)
+            
+            # Capture Reasoning
+            global last_ai_thought
+            last_ai_thought = getattr(agent, "last_reasoning", "")
+            if last_ai_thought:
+                # Optional: Log it too? Too verbose.
+                pass
+            
             log_move(f"CPU: {move_str} (Eq: {val:.3f}, Win: ~{int(win_est)}%)")
             
     return get_state_dict()

@@ -18,6 +18,7 @@ interface GameState {
     pips: number[]; // Gen 4
     device: string;
     history: string[];
+    last_thought?: string;
 }
 
 const API_URL = "http://localhost:8000";
@@ -236,6 +237,16 @@ export const Board: React.FC = () => {
 
                 <div style={{ borderTop: '1px solid #34495e', margin: '5px 0' }} />
 
+                {/* Gen6 Analysis in Sidebar */}
+                {gameState.last_thought && (
+                    <div style={{ marginBottom: '10px', backgroundColor: '#fff', borderLeft: '5px solid #8e44ad', padding: '10px', borderRadius: '4px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
+                        <div style={{ fontWeight: 'bold', color: '#8e44ad', marginBottom: '5px', textTransform: 'uppercase', fontSize: '0.75em' }}>Gen6 Analysis</div>
+                        <div style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', fontSize: '0.8em', color: '#555', maxHeight: '200px', overflowY: 'auto' }}>
+                            {gameState.last_thought}
+                        </div>
+                    </div>
+                )}
+
                 {/* Logs (Dark) */}
                 <div style={{ flex: 1, overflowY: 'auto', fontSize: '0.85em', color: '#ccc', backgroundColor: '#222', padding: '10px', borderRadius: '4px', border: '1px solid #444', fontFamily: 'monospace' }}>
                     <b style={{ display: 'block', marginBottom: '8px', color: '#fff', borderBottom: '1px solid #444', paddingBottom: '4px' }}>Action Log</b>
@@ -255,6 +266,8 @@ export const Board: React.FC = () => {
                     <span style={{ color: '#555' }}>Turn:</span> <span style={{ color: gameState.turn === 0 ? '#27ae60' : '#c0392b', fontWeight: 'bold' }}>{gameState.turn === 0 ? "YOU (White)" : "CPU (Red)"}</span>
                     <div style={{ marginTop: '8px', fontSize: '0.9em', color: '#444' }}>Dice: <b>{JSON.stringify(gameState.dice)}</b></div>
                 </div>
+
+
 
                 {/* Visual Board - Scaled UP */}
                 <div style={{ width: '800px', position: 'relative', backgroundColor: '#f5deb3', border: '15px solid #6d4c41', borderRadius: '15px', minHeight: '660px', boxShadow: '0 15px 35px rgba(0,0,0,0.15)', marginRight: '100px' }}>

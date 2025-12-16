@@ -79,6 +79,7 @@ class BackgammonGame:
         self.current_roll = []
         self.dice = [] # Current remaining dice (expanded e.g. [6,6,6,6])
         self.legal_moves = []
+        self.winner = -1
 
             
     def roll_dice(self) -> Tuple[int, int]:

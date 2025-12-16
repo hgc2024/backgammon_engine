@@ -11,3 +11,4 @@ tqdm
 fastapi
 uvicorn
 pydantic
+ollama
