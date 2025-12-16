@@ -57,6 +57,27 @@ class Gen6Agent:
             
         return max(p0_idxs) >= min(p1_idxs)
 
+    def check_hit(self, game, move_seq):
+        """
+        Simulates the move sequence to see if it results in an opponent checker hitting the bar.
+        """
+        # We need a scratch version of the board
+        # _apply_move_simulation returns (board, bar)
+        b = game.board.copy()
+        ba = game.bar.copy()
+        turn = game.turn
+        opp = 1 - turn
+        
+        original_opp_bar = ba[opp]
+        
+        for step in move_seq:
+            # step is (start, end)
+            # We call the instance method on 'game'.
+            # _apply_move_simulation(self, board, bar, move) returns (new_board, new_bar)
+            b, ba = game._apply_move_simulation(b, ba, step)
+            
+        return ba[opp] > original_opp_bar
+
     def analyze_board_features(self, game):
         """
         Analyzes board for strategic features:
@@ -267,14 +288,37 @@ class Gen6Agent:
              self.last_reasoning = "Pure Race detected. Using Gen5 Heuristic (Optimal)."
              return best['index']
         
-        # 3. Dilemma Check
+        # 3. Dilemma & Hit Detection
         equity_diff = best['equity'] - second['equity']
         
-        is_dilemma = equity_diff < self.dilemma_threshold
+        # Detect Hits
+        # Check if the Best Move hits
+        best_hits = self.check_hit(game, best['move'])
         
-        if not is_dilemma:
+        # Check if alternative (Option 2 or 3) hits
+        alt_hits = False
+        hit_candidate_idx = -1
+        
+        for i, cand in enumerate(candidates[1:3]): # Check 2nd and 3rd
+            if self.check_hit(game, cand['move']):
+                alt_hits = True
+                hit_candidate_idx = i + 1 # 0-based offset from candidates[1:]? No. i=0 is second.
+                # candidates[1] is Option 2.
+                break
+        
+        # Trigger Conditions:
+        # A. Equity is close (Standard Dilemma)
+        # B. Best move MISSES, but an alternative HITS (Aggressive safeguard)
+        
+        trigger_reason = ""
+        if equity_diff < self.dilemma_threshold:
+            trigger_reason = f"Equity Gap ({equity_diff:.3f}) < Threshold."
+        elif not best_hits and alt_hits:
+            trigger_reason = "Alternative move offers a HIT while best move does not."
+            
+        if not trigger_reason:
             # Fast Path
-            self.last_reasoning = f"Standard Gen5 Move. Equity Delta ({equity_diff:.3f}) > Threshold."
+            self.last_reasoning = f"Standard Gen5 Move. {('Best move hits.' if best_hits else 'No better hit found.')} Equity Delta {equity_diff:.3f}."
             return best['index']
             
         # 4. The Council Convenes (Slow Path)
@@ -283,7 +327,9 @@ class Gen6Agent:
         
         c_text = "CANDIDATE MOVES (Analyzed by Gen5 Engine):\n"
         for i, c in enumerate(candidates[:3]): # Top 3 only
-            c_text += f"Option {i+1}: Sequence {c['move']} | Equity: {c['equity']:.3f} | Win Prob: {c['win_prob']*100:.1f}%\n"
+            is_hit = self.check_hit(game, c['move'])
+            hit_str = " [HITS OPPONENT]" if is_hit else ""
+            c_text += f"Option {i+1}: Sequence {c['move']}{hit_str} | Equity: {c['equity']:.3f} | Win Prob: {c['win_prob']*100:.1f}%\n"
             
         prompt = f"""
 You are a Backgammon Grandmaster.
@@ -294,10 +340,11 @@ Analyze the following position and choose the best move from the candidates prov
 {c_text}
 
 CONTEXT:
-- The computer evaluation considers these moves very close (Equity difference of {equity_diff:.3f}).
+- The Council was summoned because: {trigger_reason}
 - There is NO DOUBLING CUBE. This is a match played for total points.
 - Your goal is to maximize your long-term winning chances.
 - Pay attention to "Key Strategic Features" (Primes, Anchors, Blots) listed above. Avoid getting trapped behind primes if behind in race.
+- VALUE OF HITTING: If a move hits an opponent (sends them to the bar), consider if the tempo gain outweighs the risk. Hitting is often correct if it disrupts the opponent or escapes a checker.
 
 TASK:
 1. LIST the Candidate Moves provided above.

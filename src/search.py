@@ -346,55 +346,87 @@ class ExpectiminimaxAgent:
             probs = torch.softmax(logits, dim=1)
             
             # Equity Calculation based on Style
-            if style == "safe":
-                 weights = torch.tensor([-4.0, -3.0, -2.0, 1.0, 1.1, 1.2], device=self.device)
+        if style == "safe":
+             weights = torch.tensor([-4.0, -3.0, -2.0, 1.0, 1.1, 1.2], device=self.device)
+        else:
+             weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=self.device)
+             
+        values = torch.sum(probs * weights, dim=1) # [N]
+        
+        # --- ENDGAME AGGRESSION & DESPERATION HEURISTIC ---
+        # 1. Bear-off Bonus (Existing): Reward taking pieces off.
+        off_bonuses = []
+        pip_penalties = []
+        num_off_list = []
+        
+        for (b, ba, o) in boards:
+            # Bonus for Off
+            my_off = o[perspective_player]
+            num_off_list.append(my_off)
+            
+            # Boost: Make bearing off HIGHLY desirable to break ties in won games.
+            off_bonuses.append((my_off / 15.0) * 0.5)
+            
+            # Penalty for High Pips (Encourage Racing / Saving Gammon)
+            # Player 0: 24 -> 0.Indices 0..23. Dist = index + 1.
+            # Player 1: 0 -> 24. Indices 0..23. Dist = 24 - index.
+            pips = 0
+            if perspective_player == 0:
+                 # Board Pips
+                 pips += np.sum(np.maximum(b, 0) * (np.arange(24) + 1))
+                 # Bar Pips (25)
+                 pips += ba[0] * 25
             else:
-                 weights = torch.tensor([-3.0, -2.0, -1.0, 1.0, 2.0, 3.0], device=self.device)
-                 
-            values = torch.sum(probs * weights, dim=1) # [N]
+                 # P1 are negative
+                 pips += np.sum(np.abs(np.minimum(b, 0)) * (24 - np.arange(24)))
+                 # Bar Pips (25)
+                 pips += ba[1] * 25
             
-            # --- ENDGAME AGGRESSION HEURISTIC ---
-            # 1. Bear-off Bonus (Existing): Reward taking pieces off.
-            off_bonuses = []
-            pip_penalties = []
+            # Max Pips ~ 375. Penalty factor.
+            # Increase penalty to ensure strict race logic.
+            pip_penalties.append((pips / 375.0) * 0.2)
+
+        bonus_tensor = torch.tensor(off_bonuses, device=self.device)
+        penalty_tensor = torch.tensor(pip_penalties, device=self.device)
+        num_off_tensor = torch.tensor(num_off_list, device=self.device)
+        
+        values += bonus_tensor
+        values -= penalty_tensor
+
+        # Win Probability (Sum of indices 3, 4, 5)
+        # 0=LoseBG, 1=LoseG, 2=Lose, 3=Win, 4=WinG, 5=WinBG
+        win_probs = torch.sum(probs[:, 3:], dim=1)
+        
+        # --- DESPERATION MODE ---
+        # If Win Probability < 15%, switch to "Save Gammon" mentality.
+        desperation_mask = win_probs < 0.15
+        if torch.any(desperation_mask):
+            # "At All Costs": Massive penalties for Gammon/Backgammon.
+            # Weights: LoseBG, LoseG, Lose, Win, WinG, WinBG
+            # Normal: [-3, -2, -1, ...]
+            # Desperation: [-20, -10, -1, 1, 1, 1]
+            d_weights = torch.tensor([-20.0, -10.0, -1.0, 1.0, 1.1, 1.2], device=self.device)
             
-            for (b, ba, o) in boards:
-                # Bonus for Off
-                my_off = o[perspective_player]
-                # Boost: Make bearing off HIGHLY desirable to break ties in won games.
-                off_bonuses.append((my_off / 15.0) * 0.5)
-                
-                # Penalty for High Pips (Encourage Racing / Saving Gammon)
-                # Player 0: 24 -> 0.Indices 0..23. Dist = index + 1.
-                # Player 1: 0 -> 24. Indices 0..23. Dist = 24 - index.
-                pips = 0
-                if perspective_player == 0:
-                     # Board Pips
-                     # fast numpy calc: P0 are positive
-                     pips += np.sum(np.maximum(b, 0) * (np.arange(24) + 1))
-                     # Bar Pips (25)
-                     pips += ba[0] * 25
-                else:
-                     # P1 are negative
-                     pips += np.sum(np.abs(np.minimum(b, 0)) * (24 - np.arange(24)))
-                     # Bar Pips (25)
-                     pips += ba[1] * 25
-                
-                # Max Pips ~ 375. Penalty factor.
-                # Increase penalty to ensure strict race logic when winning.
-                pip_penalties.append((pips / 375.0) * 0.2)
-
-            bonus_tensor = torch.tensor(off_bonuses, device=self.device)
-            penalty_tensor = torch.tensor(pip_penalties, device=self.device)
+            # Recalculate base value for desperate states
+            d_values = torch.sum(probs[desperation_mask] * d_weights, dim=1)
             
-            values += bonus_tensor
-            values -= penalty_tensor
+            # Add "Gammon Saved" Bonus
+            # If we have borne off at least 1 checker (num_off > 0), we saved the gammon.
+            # Add huge bonus (+5.0) to incentivize finding THAT move.
+            d_off_counts = num_off_tensor[desperation_mask]
+            saved_gammon_bonus = (d_off_counts > 0).float() * 5.0
+            
+            # Increase Pip Penalty for desperate states (Run for your life!)
+            # Current penalty is ~0.2. Add another 0.5 * normalized_pips
+            d_pip_penalties = penalty_tensor[desperation_mask] * 2.5 # Boost 2.5x
+            
+            # Combine
+            d_total = d_values + saved_gammon_bonus - d_pip_penalties
+            
+            # Apply back to values
+            values[desperation_mask] = d_total
 
-            # Win Probability (Sum of indices 3, 4, 5)
-            # 0=LoseBG, 1=LoseG, 2=Lose, 3=Win, 4=WinG, 5=WinBG
-            win_probs = torch.sum(probs[:, 3:], dim=1)
-
-            return values, win_probs
+        return values, win_probs
 
     def _run_1ply(self, game, moves, style="aggressive"):
         boards = []
