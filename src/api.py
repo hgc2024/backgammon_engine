@@ -218,10 +218,9 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
             # Get Equity (Gen 4)
             val = getattr(agent, "last_value", 0.0)
             
-            # Rough Win % Estimate: (Eq + 1) / 2
-            # Clamped between 0% and 100%
-            win_est = (val + 1.0) / 2.0
-            win_est = max(0.0, min(1.0, win_est)) * 100
+            # Get Win Probability
+            # Gen6/Search Agent stores this after get_action
+            win_prob = getattr(agent, "last_win_prob", 0.0) * 100.0
             
             game.step(action)
             
@@ -232,7 +231,7 @@ def play_ai_move(req: Optional[AIMoveRequest] = None):
                 # Optional: Log it too? Too verbose.
                 pass
             
-            log_move(f"CPU: {move_str} (Eq: {val:.3f}, Win: ~{int(win_est)}%)")
+            log_move(f"CPU: {move_str} (Eq: {val:.3f}, Win: {win_prob:.1f}%)")
             
     return get_state_dict()
 

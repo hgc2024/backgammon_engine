@@ -309,6 +309,10 @@ class Gen6Agent:
         
         best = candidates[0]
         
+        # Sync Engine State (for API logs)
+        self.engine.last_value = best['equity']
+        self.engine.last_win_prob = best['win_prob']
+        
         # If only 1 move after deduplication, return it
         if len(candidates) == 1:
             self.last_reasoning = "Only one distinct legal move."
@@ -484,6 +488,9 @@ REASONING: [Your explanation]
         # 1. Exact Match
         for i, move in enumerate(game.legal_moves):
             if move == target_move:
+                # Sync Engine Stats
+                self.engine.last_value = final_cand['equity']
+                self.engine.last_win_prob = final_cand['win_prob']
                 return i
                 
         # 2. Semantic Match (Afterstate)
@@ -500,6 +507,9 @@ REASONING: [Your explanation]
              curr_sig = (tuple(m_b), tuple(m_ba), tuple(m_o))
              if curr_sig == target_sig:
                  print(f"Gen6: Exact move match failed, but found semantic match at index {i}.")
+                 # Sync Engine Stats
+                 self.engine.last_value = final_cand['equity']
+                 self.engine.last_win_prob = final_cand['win_prob']
                  return i
                  
         print("CRITICAL: Gen6 Choice not found in legal moves. Returning 0 (Safety).")

@@ -722,7 +722,8 @@ class ExpectiminimaxAgent:
                 opp_moves = sim_game.get_legal_moves(roll)
                 
                 if not opp_moves:
-                    v, wp = self._evaluate_states([(b1, ba1, o1)], opponent, opponent, style, current_score=game.score)
+                    # Opponent Passes -> My Turn
+                    v, wp = self._evaluate_states([(b1, ba1, o1)], current_turn, current_turn, style, current_score=game.score)
                     expected_equity += v.item() * prob
                     expected_win_prob += wp.item() * prob
                     continue
