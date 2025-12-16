@@ -16,6 +16,9 @@ try:
 except ImportError:
     Gen6Agent = None
 
+# CONFIGURATION
+ENABLE_GEN6_AGENT = True # Set to False to disable Mistral/Ollama dependency
+
 app = FastAPI()
 
 # CORS
@@ -175,7 +178,7 @@ MODEL_PATH = "best_so_far_gen5.pth"
 if os.path.exists(MODEL_PATH):
     # Agent will auto-detect Gen 5 vs Gen 4 based on checkpoint keys in search.py
     base_engine = ExpectiminimaxAgent(MODEL_PATH, device="cuda" if torch.cuda.is_available() else "cpu", use_race_heuristic=True)
-    if Gen6Agent:
+    if Gen6Agent and ENABLE_GEN6_AGENT:
         agent = Gen6Agent(base_engine)
         print(f"Loaded Gen6 Agent (Council) with base {MODEL_PATH}")
     else:
