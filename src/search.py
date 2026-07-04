@@ -3,6 +3,11 @@ import numpy as np
 import itertools
 from src.game import BackgammonGame, get_obs_from_state as get_obs_gen4
 from src.model_gen5 import BackgammonValueNetGen5
+from src.endgame import BearoffEvaluator
+from src.position_classification import (
+    DEFAULT_POSITION_CLASSIFIER,
+    PositionClass,
+)
 
 def get_obs_gen5(board, bar, off, turn, score, cube, player_perspective):
     # 1. Base Gen 4 Features (198)
@@ -17,12 +22,8 @@ def get_obs_gen5(board, bar, off, turn, score, cube, player_perspective):
     base_obs_np = get_obs_gen4(board, bar, off, turn, score, cube, 1) # Returns np.array
     base_obs = base_obs_np.tolist() # Convert to list to append
     
-    # 2. Match Scores (Normalized by Match Target if possible, or just raw/15?)
-    # Train Script logic: user provided scores.
-    # Here game.score is [p0, p1].
-    # Feature 1: My Score / 25.0
-    # Feature 2: Opp Score / 25.0
-    # (Assuming match to 25 or similar? Train used /25.0 normalization)
+    # The released checkpoint was trained with train_gen5.py's default
+    # match_target=5 normalization. Inference must preserve that contract.
     
     # Perspective Check
     if player_perspective == 0:
@@ -32,8 +33,8 @@ def get_obs_gen5(board, bar, off, turn, score, cube, player_perspective):
         s_my = score[1]
         s_opp = score[0]
         
-    base_obs.append(s_my / 25.0)
-    base_obs.append(s_opp / 25.0)
+    base_obs.append(min(s_my / 5.0, 1.0))
+    base_obs.append(min(s_opp / 5.0, 1.0))
     
     return np.array(base_obs, dtype=np.float32)
 
@@ -43,6 +44,9 @@ class ExpectiminimaxAgent:
         self.model_path = model_path
         self.use_race_heuristic = use_race_heuristic
         self.is_gen5 = False
+        self.endgame = BearoffEvaluator()
+        self.position_classifier = DEFAULT_POSITION_CLASSIFIER
+        self.last_evaluation_source = "neural"
         
         # Load Checkpoint First to Determine Architecture
         try:
@@ -90,6 +94,17 @@ class ExpectiminimaxAgent:
         If depth > 0, performs lookahead (Expectiminimax).
         Returns dict with "equity" and "win_prob" (0.0-1.0).
         """
+        if not game.dice:
+            endgame_value = self.endgame.evaluate_on_roll(game)
+            if endgame_value is not None:
+                self.last_value = float(endgame_value["equity"])
+                self.last_win_prob = float(endgame_value["win_prob"])
+                self.last_evaluation_source = str(endgame_value["source"])
+                return {
+                    "equity": self.last_value,
+                    "win_prob": self.last_win_prob,
+                }
+
         if depth > 0:
             # LOOKAHEAD EVALUATION
             if game.dice:
@@ -102,14 +117,18 @@ class ExpectiminimaxAgent:
                 # If None, we need to eval resulting state (Turn Switch).
                 
                 if best_idx is None:
-                    # Pass. Value is -Eval(Opponent).
-                    # Approximate by evaluating state where turn is switched.
-                    # Or just 0-ply eval of inverted state?
-                    # get_action usually implies we are deciding.
-                    # If pass, we are effectively at next state.
-                    pass # TODO: Handle Pass Eval more accurately.
-                    # Fallback to 0-ply if pass?
-                    return self.get_state_value(game, style, depth=0)
+                    opponent = 1 - game.turn
+                    values, win_probs = self._evaluate_states(
+                        [(game.board, game.bar, game.off)],
+                        opponent,
+                        opponent,
+                        style,
+                        current_score=game.score,
+                    )
+                    return {
+                        "equity": -values[0].item(),
+                        "win_prob": 1.0 - win_probs[0].item(),
+                    }
                 
                 return {
                     "equity": self.last_value,
@@ -216,6 +235,16 @@ class ExpectiminimaxAgent:
         moves = game.legal_moves
         if not moves:
             return None
+
+        self.last_evaluation_source = "neural-search"
+        endgame_candidates = self.endgame.rank_moves(game, moves)
+        if endgame_candidates:
+            best = endgame_candidates[0]
+            self.last_value = float(best["equity"])
+            self.last_win_prob = float(best["win_prob"])
+            self.last_evaluation_source = str(best["source"])
+            return int(best["index"])
+
         if len(moves) == 1:
             return 0
             
@@ -233,24 +262,15 @@ class ExpectiminimaxAgent:
             return self._run_3ply_beam(game, moves, style)
 
     def _is_pure_race(self, game):
-        # Check if P0 (White) and P1 (Red) have passed each other.
-        b = game.board
-        p0_inds = [i for i, c in enumerate(b) if c > 0]
-        p1_inds = [i for i, c in enumerate(b) if c < 0]
-        
-        # If any on bar, not a pure race (usually) unless other has cleared?
-        # Actually if on bar, you are at 24 or -1.
-        if game.bar[0] > 0 or game.bar[1] > 0:
-            # Technically could be race if opponent is all home, but simpler to say "No" if bar
-            return False
-            
-        if not p0_inds or not p1_inds:
-            return True # Game over essentially
-            
-        # P0 moves High -> Low (23->0).
-        # P1 moves Low -> High (0->23).
-        # Race if max(P0) < min(P1).
-        return max(p0_inds) < min(p1_inds)
+        position_class = self.position_classifier.classify(
+            game.board, game.bar, game.off
+        ).position_class
+        return position_class in (
+            PositionClass.GAME_OVER,
+            PositionClass.TWO_SIDED_BEAROFF,
+            PositionClass.ONE_SIDED_BEAROFF,
+            PositionClass.RACE,
+        )
 
     def run_race_heuristic(self, game, moves):
         best_idx = 0
@@ -497,8 +517,15 @@ class ExpectiminimaxAgent:
                 opp_moves = sim_game.get_legal_moves(roll)
                 
                 if not opp_moves:
-                    # Use evaluate_states to get both val and win_prob
-                    v, wp = self._evaluate_states([(b1, ba1, o1)], opponent, opponent, style, current_score=game.score)
+                    # Opponent passes; retain the original player's
+                    # perspective when accumulating the root move's value.
+                    v, wp = self._evaluate_states(
+                        [(b1, ba1, o1)],
+                        current_turn,
+                        current_turn,
+                        style,
+                        current_score=game.score,
+                    )
                     expected_opp_win += v.item() * prob
                     expected_opp_win_prob += wp.item() * prob
                     continue
@@ -680,6 +707,15 @@ class ExpectiminimaxAgent:
             moves = game.legal_moves
             if not moves:
                 return []
+
+        self.last_evaluation_source = "neural-search"
+        endgame_candidates = self.endgame.rank_moves(game, moves)
+        if endgame_candidates:
+            best = endgame_candidates[0]
+            self.last_value = float(best["equity"])
+            self.last_win_prob = float(best["win_prob"])
+            self.last_evaluation_source = str(best["source"])
+            return endgame_candidates
                 
         # --- 1-PLY PRUNING ---
         boards_1ply = []

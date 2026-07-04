@@ -2,6 +2,7 @@
 import ollama
 import numpy as np
 from src.search import ExpectiminimaxAgent
+from src.position_classification import PositionClass
 
 class Gen6Agent:
     def __init__(self, engine: ExpectiminimaxAgent, model_name="llama3.2"):
@@ -22,6 +23,10 @@ class Gen6Agent:
     def last_win_prob(self):
         return getattr(self.engine, "last_win_prob", 0.0)
 
+    @property
+    def last_evaluation_source(self):
+        return getattr(self.engine, "last_evaluation_source", "unknown")
+
     def get_state_value(self, game, style="aggressive", depth=2):
         return self.engine.get_state_value(game, style=style, depth=depth)
 
@@ -41,21 +46,13 @@ class Gen6Agent:
         Race condition: All P0 checkers are LOWER than all P1 checkers.
         i.e. max(P0) < min(P1).
         """
-        p0_idxs = [i for i, c in enumerate(game.board) if c > 0]
-        p1_idxs = [i for i, c in enumerate(game.board) if c < 0]
-        
-        # Add Bar checkers (Bar is "before" start)
-        # P0 Bar: effectively index 24 (needs to enter 23..18) -> Wait.
-        # P0 moves 23->0. Bar enters at 23 (24).
-        # P1 Bar: effectively index -1 (needs to enter 0..5).
-        
-        if game.bar[0] > 0: p0_idxs.append(24)
-        if game.bar[1] > 0: p1_idxs.append(-1)
-        
-        if not p0_idxs or not p1_idxs:
-            return False # One side bear off completely?
-            
-        return max(p0_idxs) >= min(p1_idxs)
+        position_class = self.engine.position_classifier.classify(
+            game.board, game.bar, game.off
+        ).position_class
+        return position_class in (
+            PositionClass.CONTACT,
+            PositionClass.CRASHED,
+        )
 
     def check_hit(self, game, move_seq):
         """
@@ -312,6 +309,12 @@ class Gen6Agent:
         # Sync Engine State (for API logs)
         self.engine.last_value = best['equity']
         self.engine.last_win_prob = best['win_prob']
+
+        source = best.get("source")
+        if source:
+            self.engine.last_evaluation_source = source
+            self.last_reasoning = f"Endgame database decision: {source}."
+            return best["index"]
         
         # If only 1 move after deduplication, return it
         if len(candidates) == 1:
@@ -334,30 +337,17 @@ class Gen6Agent:
         opp_pip = p1_pip if game.turn == 0 else p0_pip
         
         if me_pip <= opp_pip:
-            # We are winning/tied race. Look for moves that leave NO contact.
-            transition_moves = []
-            for cand in candidates: # check all top candidates (or all legal?)
-                 # Re-check all legal moves? Or just the good ones?
-                 # Let's check all legal moves to find a "Run" move.
-                 pass
-            
-            # Efficient: Check provided candidates first.
+            # We are winning/tied race. Use the strongest evaluated candidate
+            # that safely ends contact.
             for cand in candidates:
-                sim_board, sim_bar, _ = game.get_afterstate(cand['move']) 
-                # Create dummy game to check contact
-                # We can just use static method if we refactor or use self.is_contact logic on board?
-                # self.is_contact(game) -> uses game.board.
-                # Let's duplicate logic for sim_board.
-                
-                # Check CONTACT on sim_board
-                p0_idxs = [i for i, c in enumerate(sim_board) if c > 0]
-                p1_idxs = [i for i, c in enumerate(sim_board) if c < 0]
-                if sim_bar[0] > 0: p0_idxs.append(24)
-                if sim_bar[1] > 0: p1_idxs.append(-1)
-                
-                has_contact = False
-                if p0_idxs and p1_idxs:
-                    has_contact = max(p0_idxs) >= min(p1_idxs)
+                sim_board, sim_bar, sim_off = game.get_afterstate(cand['move'])
+                after_class = self.engine.position_classifier.classify(
+                    sim_board, sim_bar, sim_off
+                ).position_class
+                has_contact = after_class in (
+                    PositionClass.CONTACT,
+                    PositionClass.CRASHED,
+                )
                     
                 if not has_contact:
                     # Found a transition move!
@@ -366,8 +356,9 @@ class Gen6Agent:
                     # Taking it immediately is the "Forced Transition" logic.
                     self.last_reasoning = "Race Lead + Safe Transition found. Auto-executing Race Logic."
                     print("Gen6: Auto-Transition to Race Mode.")
-                    # Use Heuristic to pick BEST transition move if multiple
-                    return self.engine.run_race_heuristic(game, game.legal_moves)
+                    self.engine.last_value = cand["equity"]
+                    self.engine.last_win_prob = cand["win_prob"]
+                    return cand["index"]
         
         # 3. Dilemma & Hit Detection
         equity_diff = best['equity'] - second['equity']

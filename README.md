@@ -81,6 +81,46 @@ The system also gracefully degrades: if Ollama is taking too long or is unreacha
 - **Move Log**: Track game history.
 - **Collapsible Analysis**: View the AI's "Thoughts" in the sidebar when it faces a tough decision.
 
+### Independent Bear-off Database
+
+The repository includes independently implemented one-sided and exact
+two-sided bear-off generators:
+
+```cmd
+python -m src.generate_bearoff
+python -m src.generate_two_sided_bearoff
+```
+
+The one-sided database covers up to 15 checkers on six points. It stores
+completion-time and first-checker-off distributions, expected rolls for all
+54,264 states, and the preferred successor for every dice class.
+
+The two-sided database contains exact cubeless win probabilities for all
+853,776 pairs with up to six checkers per player. Covered positions now bypass
+the neural evaluator through `src.endgame`.
+
+The generator uses a project-specific state encoding and file format. It does
+not read, write, bundle, or copy GNU Backgammon databases or source code.
+
+### Position Classes
+
+`src.position_classification` assigns every position to one structural class
+before evaluation:
+
+| Class | Evaluation route |
+| --- | --- |
+| `game_over` | Exact terminal result |
+| `two_sided_bearoff` | Exact 6-checker two-sided tablebase |
+| `one_sided_bearoff` | 15-checker completion and gammon distributions |
+| `race` | Non-contact race evaluation |
+| `crashed` | Contact evaluation specialized for low mobility |
+| `contact` | General tactical evaluation and search |
+
+A contact position becomes `crashed` when either player has at most six
+checkers remaining or at most six mobile checkers after discounting excess
+checkers buried on the ace and deuce points. The API exposes the class as
+`position_class`.
+
 ---
 
 ## 📂 Project Structure
@@ -88,6 +128,11 @@ The system also gracefully degrades: if Ollama is taking too long or is unreacha
 - **`src/`**: Python Source Code
     - `agent_gen6.py`: The "Council" Agentic Workflow & LLM Integration.
     - `game.py`: Core Backgammon Rules Engine.
+    - `bearoff.py`: Independent one-sided bear-off generator and database reader.
+    - `generate_bearoff.py`: Command-line database generation utility.
+    - `bearoff_two_sided.py`: Exact two-player cubeless retrograde tablebase.
+    - `endgame.py`: Phase-aware tablebase evaluation and move ranking.
+    - `position_classification.py`: Shared structural phase classifier.
     - `model_gen5.py`: PyTorch Neural Network Definition.
     - `train_gen5.py`: Main Training Script.
     - `api.py`: FastAPI Backend Server.

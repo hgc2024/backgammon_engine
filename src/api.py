@@ -11,6 +11,7 @@ import random
 from src.game import BackgammonGame, GamePhase
 from src.game import BackgammonGame, GamePhase
 from src.search import ExpectiminimaxAgent
+from src.position_classification import DEFAULT_POSITION_CLASSIFIER
 try:
     from src.agent_gen6 import Gen6Agent
 except ImportError:
@@ -70,6 +71,9 @@ last_ai_thought: str = ""
 
 def get_state_dict():
     # Convert numpy/enums to JSON friendly
+    position_class = DEFAULT_POSITION_CLASSIFIER.classify(
+        game.board, game.bar, game.off
+    ).position_class.value
     return {
         "board": game.board.tolist(),
         "bar": game.bar,
@@ -83,10 +87,15 @@ def get_state_dict():
         "winner": game.winner,
         "score": game.score,
         "pips": [int(x) for x in game.get_pip_counts()], 
-        "device": str(agent.device) if agent else "N/A",
         "device": str(agent.device) if agent and hasattr(agent, "device") else "N/A",
+        "evaluation_source": (
+            str(agent.last_evaluation_source)
+            if agent and hasattr(agent, "last_evaluation_source")
+            else "unknown"
+        ),
         "history": move_history,
-        "last_thought": last_ai_thought
+        "last_thought": last_ai_thought,
+        "position_class": position_class,
     }
 
 def log_move(msg: str):
@@ -160,13 +169,20 @@ def get_legal_moves():
 
 @app.post("/step")
 def play_partial_move(req: PartialMoveRequest):
-    save_undo_snapshot()
     start, end = req.move
     if game.phase != GamePhase.DECIDE_MOVE:
         return {"error": "Not in Move Phase"}
+    move = (start, end)
+    if move not in game.get_legal_partial_moves():
+        return {
+            "error": f"Illegal move: {start}->{end}",
+            "legal_moves": game.get_legal_partial_moves(),
+        }
     try:
-        game.step_partial((start, end)) 
-        log_move(f"P{game.turn} Moved {start}->{end}")
+        moving_player = game.turn
+        save_undo_snapshot()
+        game.step_partial(move)
+        log_move(f"P{moving_player} Moved {start}->{end}")
         return get_state_dict()
     except Exception as e:
         print(f"Move Error: {e}")

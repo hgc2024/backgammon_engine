@@ -1,5 +1,6 @@
 import numpy as np
 import random
+import itertools
 from typing import List, Tuple, Optional
 
 import enum
@@ -115,6 +116,8 @@ class BackgammonGame:
         # Interpretation of action depends on phase
         
         if self.phase == GamePhase.DECIDE_CUBE_OR_ROLL:
+            if action_idx not in (0, 1):
+                raise ValueError("cube decision must be 0 (roll) or 1 (double)")
             # Actions: 0 = Roll, 1 = Double
             if action_idx == 1:
                 # Double
@@ -128,6 +131,8 @@ class BackgammonGame:
                 self._roll_and_start_turn()
                 
         elif self.phase == GamePhase.RESPOND_TO_DOUBLE:
+            if action_idx not in (0, 1):
+                raise ValueError("double response must be 0 (take) or 1 (drop)")
             # Actions: 0 = Generic "Take", 1 = Generic "Drop"
             if action_idx == 0:
                 # Take
@@ -151,6 +156,11 @@ class BackgammonGame:
                 self.turn = 1 - self.turn
                 self.phase = GamePhase.DECIDE_CUBE_OR_ROLL
             else:
+                if not isinstance(action_idx, int) or not 0 <= action_idx < len(self.legal_moves):
+                    raise ValueError(
+                        f"move action index {action_idx!r} is outside "
+                        f"0..{len(self.legal_moves) - 1}"
+                    )
                 move_seq = self.legal_moves[action_idx]
                 for move in move_seq:
                     start, end = move
@@ -175,20 +185,31 @@ class BackgammonGame:
 
     def get_legal_partial_moves(self) -> List[Tuple[int, int]]:
         """
-        Returns list of (start, end) single moves valid for the CURRENT remaining dice.
-        For Human UI.
+        Return legal first atomic moves for the current remaining dice.
+
+        A move is exposed only if it begins a complete continuation that obeys
+        maximum-dice usage and the larger-die rule.
         """
-        moves = []
-        
-        # We need to try each unique die in self.dice
-        unique_dice = set(self.dice)
-        
-        for die in unique_dice:
-            # Generate moves for this die
-            single_moves = self._generate_single_moves(self.board, self.bar, die)
-            moves.extend(single_moves)
-            
-        return sorted(list(set(moves)), key=lambda x: (x[0] if isinstance(x[0], int) else -1))
+        return list(self._get_legal_partial_options())
+
+    @staticmethod
+    def _move_sort_key(move):
+        start, end = move
+        start_key = -1 if start == "bar" else int(start)
+        end_key = 25 if end == "off" else int(end)
+        return start_key, end_key
+
+    def _get_legal_partial_options(self):
+        """Map each legal first move to dice that may legally perform it."""
+        options = {}
+        for path in self._get_legal_labeled_paths(
+            self.board, self.bar, tuple(self.dice)
+        ):
+            if not path:
+                continue
+            move, die = path[0]
+            options.setdefault(move, set()).add(die)
+        return dict(sorted(options.items(), key=lambda item: self._move_sort_key(item[0])))
 
     def step_partial(self, move: Tuple[int, int]) -> Tuple[int, int, bool]:
         """
@@ -198,77 +219,24 @@ class BackgammonGame:
         3. Removes Used Die.
         4. Checks if turn is finished.
         """
+        if self.phase != GamePhase.DECIDE_MOVE:
+            raise ValueError("partial moves are only legal during DECIDE_MOVE")
+
+        move = tuple(move)
+        options = self._get_legal_partial_options()
+        valid_dice = options.get(move)
+        if not valid_dice:
+            raise ValueError(
+                f"illegal partial move {move!r} for dice {self.dice}; "
+                f"legal moves are {list(options)}"
+            )
+
         start, end = move
-        
-        # 1. Deduce which die was used
-        die_used = -1
-        dist = self._get_move_distance(move)
-        
-        # Exact Match?
-        if dist in self.dice:
-            die_used = dist
-        else:
-            # Must be bearing off with larger die?
-            # Check logic
-            if end == 'off':
-                # bearing off. 
-                # If exact die exists, use it.
-                if dist in self.dice:
-                    die_used = dist
-                else:
-                    # Must use larger die. Find smallest die >= dist?
-                    # Actually rule is: must use exact die if possible, else if bearing off from highest point, use larger.
-                    # Simplified: if dist is not in dice, look for max(dice) > dist.
-                    # We assume UI only sends valid moves validated by _generate_single_moves logic.
-                    # But _generate checks strict logic.
-                    # If we bear off from 2 using 6, dist is 3 (2-(-1)). Wait.
-                    # _get_move_distance returns 0 if off? No, let's fix that helper logic or reuse it carefully.
-                    
-                    # _get_move_distance(start, 'off') returns 0?
-                    # Let's fix _get_move_distance to return actual pips required.
-                    pass
-        
-        # Re-calc distance carefully for BearOff logic if needed
-        if die_used == -1:
-            # Fallback logic for bearing off with larger die
-            # The only case dist != die is bearing off with larger die.
-            valid_dice = [d for d in self.dice if d >= dist]
-            if valid_dice:
-                # AMBIGUITY: If multiple dice work (e.g. bear off from 2 using 3 or 4),
-                # which one do we burn?
-                # Heuristic: Burn the SMALLEST sufficient die to save larger ones?
-                # Or LARGEST?
-                # Standard convention: You usually want to save large dice? No, saving small dice is good for flexibility?
-                # In most UI "Bear Off" implies using the die that makes it legal.
-                # If both 5 and 6 work for 'off from 2', standard rule says you can use 6? Or 5?
-                # You can choose.
-                # Auto-choice: Use MIN (Smallest sufficient).
-                die_used = min(valid_dice) 
-            else:
-                 # Logic Error: No die large enough?
-                 # This shouldn't happen if move is legal.
-                 # Safety: if not found, use closest match?
-                 pass
-                
-        if die_used == -1:
-             # Error state: Move didn't match any die?
-             # Fallback: Just take the first die that is >= dist?
-             # This is risky without strict validation. 
-             # Assuming input move IS legal.
-             # We just assume the first die that COULD generate this move is the one used.
-             # Let's trust logic.
-             # Re-run _generate_single_moves for each die and see which produced this move.
-             for d in sorted(self.dice):
-                 opts = self._generate_single_moves(self.board, self.bar, d)
-                 if move in opts:
-                     die_used = d
-                     break
-                     
-        if die_used != -1:
-            self.dice.remove(die_used) # Remove FIRST occurrence
-        else:
-            print(f"CRITICAL ERROR: Move {move} not found in dice {self.dice}")
-            return 0, -1, False
+        distance = self._get_move_distance(move)
+        die_used = (
+            distance if distance in valid_dice else min(valid_dice)
+        )
+        self.dice.remove(die_used)
             
         # 2. Apply Move
         self.board, self.bar = self._apply_move_simulation(self.board, self.bar, move)
@@ -288,19 +256,15 @@ class BackgammonGame:
             # Turn Over
             self.turn = 1 - self.turn
             self.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+            self.legal_moves = []
         else:
-            # Dice remaining. Check if any legal moves exist for remaining dice.
-            can_move = False
-            unique_d = set(self.dice)
-            for d in unique_d:
-                if self._generate_single_moves(self.board, self.bar, d):
-                    can_move = True
-                    break
-            
-            if not can_move:
+            self.legal_moves = self._get_legal_moves_for_dice(tuple(self.dice))
+            if not self.legal_moves:
                 # No moves left for remaining dice -> Turn Over
                 self.turn = 1 - self.turn
                 self.phase = GamePhase.DECIDE_CUBE_OR_ROLL
+                self.dice = []
+                self.legal_moves = []
                 
         return 0, -1, False
 
@@ -334,104 +298,82 @@ class BackgammonGame:
         Enforces the "must use max dice" rule.
         Returns a list of move sequences. Each sequence is a list of (start, end).
         """
-        dice = list(roll)
-        if dice[0] == dice[1]:
-            dice = [dice[0]] * 4
-            
-        possible_sequences = [] # List of (moves_list, resulting_board_state)
-        
-        # Recursive search for moves
-        # We search depth-first.
-        # State: (current_board, current_bar, remaining_dice, current_path)
-        
-        # Optimization: We only care about the sequence of moves, but the state matters for validation.
-        # Since the board is small, we can probably get away with deepcopying or undoing moves.
-        
-        # However, for 4 dice, branching factor can be high.
-        # Standard approach:
-        # Try to use die[0]. If successful, recurse with remaining dice.
-        
-        direction = -1 if self.turn == 0 else 1
-        home_range = range(0, 6) if self.turn == 0 else range(18, 24)
-        bar_idx = 0 if self.turn == 0 else 1
-        
-        permutations = set()
-        if len(dice) == 2 and dice[0] != dice[1]:
-            permutations.add(tuple(dice))
-            permutations.add((dice[1], dice[0]))
-        else:
-            permutations.add(tuple(dice))
-            
-        final_sequences = []
-        max_moves_found = 0
-        
-        for p_dice in permutations:
-            # We need to explore this dice order.
-            # But wait, Backgammon rule: if you can play (d1, d2) OR (d2, d1), you can choose.
-            # AND if you can only play one, you must play the larger one (if possible).
-            # This logic is tricky.
-            
-            # Let's collect ALL reachable states and path lengths.
-            found_paths = self._find_moves_recursive(self.board.copy(), self.bar.copy(), list(p_dice))
-            
-            for path in found_paths:
-                if len(path) > max_moves_found:
-                    max_moves_found = len(path)
-                    final_sequences = [path]
-                elif len(path) == max_moves_found:
-                    final_sequences.append(path)
-                    
-        # Filter duplicates (sequences might differ but moves are same?) 
-        # Actually (start, end) might be same but generated from different dice orders.
-        # In BG, which die was used for which move usually doesn't matter for the final state,
-        # but for RL training we might want to just output the moves.
-        
-        # Special Rule: If max_moves_found < len(dice)
-        # Check if we could have played a larger die but didn't.
-        # If we have dice [3, 6] and we played [3] but could have played [6], we must drop the [3] solution.
-        # This is handled if we strictly enforce "find max depth" across all permutations.
-        # BUT: If we have [3, 6] and can play 3->X or 6->Y (but not both), we MUST play 6.
-        
-        if len(dice) == 2 and dice[0] != dice[1] and max_moves_found == 1:
-            # We played 1 move. Was it the larger die?
-            # Filter final_sequences to ensure we used the larger die if possible.
-            # This is complex to check post-hoc without tracking which die was used.
-            # Let's assume _find_moves_recursive tracks used dice or implies it.
-            
-            # Re-run logic with explicit "must use max" check?
-            # Simple heuristic: If we have multiple 1-move paths, and one used 6 and one used 3, keep 6.
-            pass # TODO: Refine this. For now assume random/first valid.
-            
-            # To fix: check the move distance?
-            # abs(start - end). If start is bar, distance is calculated from edge.
-            
-            larger_die = max(dice)
-            smaller_die = min(dice)
-            
-            valid_larger = False
-            for seq in final_sequences:
-                move = seq[0]
-                dist = self._get_move_distance(move)
-                if dist == larger_die:
-                    valid_larger = True
-                    break
-            
-            if valid_larger:
-                 final_sequences = [s for s in final_sequences if self._get_move_distance(s[0]) == larger_die]
-                 
-        unique_sequences = list(set(tuple(seq) for seq in final_sequences))
-        # custom sort key: handles 'off' (str) vs int in tuples
-        def sort_key(seq):
-            # seq is tuple of moves ((start, end), ...)
-            # Convert 'bar' to -1, 'off' to 24 (or -999 depending on logic, just consistent int)
-            def clean_val(v):
-                if v == 'bar': return -1
-                if v == 'off': return 25
-                return v
-            
-            return tuple((clean_val(s), clean_val(e)) for s, e in seq)
-            
-        return sorted(unique_sequences, key=sort_key)
+        dice = tuple(int(die) for die in roll)
+        if not dice or any(die < 1 or die > 6 for die in dice):
+            raise ValueError("roll must contain dice between 1 and 6")
+        if len(dice) == 2 and dice[0] == dice[1]:
+            dice = (dice[0],) * 4
+        elif len(dice) > 4:
+            raise ValueError("a turn cannot contain more than four dice")
+        return self._get_legal_moves_for_dice(dice)
+
+    def _get_legal_moves_for_dice(self, dice):
+        labeled_paths = self._get_legal_labeled_paths(
+            self.board, self.bar, tuple(dice)
+        )
+        sequences = {
+            tuple(move for move, _die in path)
+            for path in labeled_paths
+            if path
+        }
+        return [
+            list(sequence)
+            for sequence in sorted(
+                sequences,
+                key=lambda sequence: tuple(
+                    self._move_sort_key(move) for move in sequence
+                ),
+            )
+        ]
+
+    def _get_legal_labeled_paths(self, board, bar, dice):
+        """Return maximally legal paths as ``((move, die), ...)`` tuples."""
+        if not dice:
+            return ()
+
+        permutations = sorted(set(itertools.permutations(dice)))
+        paths = []
+        for ordered_dice in permutations:
+            paths.extend(
+                self._find_labeled_moves_recursive(
+                    board.copy(), bar.copy(), ordered_dice
+                )
+            )
+
+        max_moves = max((len(path) for path in paths), default=0)
+        if max_moves == 0:
+            return ()
+        paths = [path for path in paths if len(path) == max_moves]
+
+        if len(dice) == 2 and dice[0] != dice[1] and max_moves == 1:
+            larger = max(dice)
+            if any(path[0][1] == larger for path in paths):
+                paths = [path for path in paths if path[0][1] == larger]
+
+        return tuple(sorted(set(paths), key=lambda path: tuple(
+            (*self._move_sort_key(move), die) for move, die in path
+        )))
+
+    def _find_labeled_moves_recursive(self, board, bar, dice):
+        if not dice:
+            return [()]
+
+        die = dice[0]
+        remaining_dice = dice[1:]
+        moves = self._generate_single_moves(board, bar, die)
+        if not moves:
+            return self._find_labeled_moves_recursive(
+                board, bar, remaining_dice
+            )
+
+        paths = []
+        for move in moves:
+            new_board, new_bar = self._apply_move_simulation(board, bar, move)
+            for continuation in self._find_labeled_moves_recursive(
+                new_board, new_bar, remaining_dice
+            ):
+                paths.append(((move, die),) + continuation)
+        return paths
 
     def _get_move_distance(self, move):
         start, end = move
@@ -457,31 +399,6 @@ class BackgammonGame:
                 
         # Normal Move
         return abs(start - end)
-
-    def _find_moves_recursive(self, board, bar, dice) -> List[List[Tuple[int, int]]]:
-        if not dice:
-            return [[]]
-            
-        die = dice[0]
-        remaining_dice = dice[1:]
-        
-        moves = self._generate_single_moves(board, bar, die)
-        
-        if not moves:
-            return [[]] # No moves for this die, stop here.
-            
-        paths = []
-        for move in moves:
-            # Apply move
-            new_board, new_bar = self._apply_move_simulation(board, bar, move)
-            
-            # Recurse
-            sub_paths = self._find_moves_recursive(new_board, new_bar, remaining_dice)
-            
-            for sub in sub_paths:
-                paths.append([move] + sub)
-                
-        return paths
 
     def _generate_single_moves(self, board, bar, die):
         player = self.turn
